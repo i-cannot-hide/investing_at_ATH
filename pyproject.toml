@@ -1,0 +1,29 @@
+[build-system]
+requires = ["setuptools>=70", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "backtest314"
+version = "0.1.0"
+description = "Simple backtesting scaffold"
+requires-python = ">=3.14"
+readme = "README.md"
+dependencies = [
+  "numpy>=2.0",
+  "pandas>=2.2",
+  "matplotlib>=3.9",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=8.2",
+  "jupyterlab>=4.2",
+  "ipykernel>=6.29",
+]
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+

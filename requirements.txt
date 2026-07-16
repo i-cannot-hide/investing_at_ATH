@@ -1,0 +1,11 @@
+numpy>=2.0
+pandas>=2.2
+matplotlib>=3.9
+
+# dev / tests
+pytest>=8.2
+
+# notebooks
+jupyterlab>=4.2
+ipykernel>=6.29
+
