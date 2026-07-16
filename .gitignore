@@ -6,9 +6,13 @@ __pycache__/
 .ruff_cache/
 .ipynb_checkpoints/
 .DS_Store
+.vscode/
 
 data/raw/
 data/processed/
+strat_runner/data/raw/
+strat_runner/data/preprocessed/*
+!strat_runner/data/preprocessed/.gitkeep
 
 strat_runner/runs/*
 !strat_runner/runs/.gitkeep
