@@ -1,6 +1,6 @@
 from decimal import Decimal
 
-from models import Account, Order, OrderSide, Position
+from models import Account, Order, OrderSide, Position, OrderType
 
 
 class MockExecutor:
@@ -14,6 +14,9 @@ class MockExecutor:
 
         for order in orders:
             price = prices[order.ticker]
+
+            if order.order_type == OrderType.LIMIT:
+                raise NotImplementedError("Limit orders are not implemented")
 
             if order.side == OrderSide.BUY:
                 self._buy(order, price, account, positions)

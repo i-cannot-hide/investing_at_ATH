@@ -15,7 +15,8 @@ class Environment:
         self.data_file = project_dir / data_file
         self.account = Account(balances={"USD": Decimal("10000")})
         self.positions = []
-        self.recorder = Recorder(project_dir / "runs/run_001")
+        strategy_name = type(strategy).__name__.removesuffix("Strategy").lower()
+        self.recorder = Recorder(project_dir / "runs" / f"{strategy_name}_001")
 
     def run(self):
         candles = load_candles(self.data_file)

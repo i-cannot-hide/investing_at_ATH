@@ -11,6 +11,7 @@ class OrderSide(Enum):
 
 class OrderType(Enum):
     MARKET = "MARKET"
+    LIMIT = "LIMIT"
 
 
 @dataclass
