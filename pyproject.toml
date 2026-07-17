@@ -25,5 +25,6 @@ dev = [
 package-dir = {"" = "src"}
 
 [tool.pytest.ini_options]
-testpaths = ["tests"]
+testpaths = ["strat_runner/tests"]
+pythonpath = ["strat_runner"]
 

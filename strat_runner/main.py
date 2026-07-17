@@ -14,7 +14,7 @@ for strategy in strategies:
         strategy,
         MockExecutor(),
         "data/preprocessed/btc.csv",
-        full_debug_runs=True,
+        full_debug_runs=False,
     )
     environment.run()
     print(f"Finished {type(strategy).__name__}")
