@@ -4,6 +4,7 @@ from models import Context, Order, OrderSide, OrderType
 
 
 MIN_USD = Decimal("10.00")
+TICKER = "BTC"
 
 
 class HoldStrategy:
@@ -12,10 +13,11 @@ class HoldStrategy:
         if usd < MIN_USD:
             return []
 
-        if not context.candles:
+        btc_candles = context.candles.get(TICKER, [])
+        if not btc_candles:
             return []
 
-        price = context.candles[-1].close
+        price = btc_candles[-1].close
         if price <= 0:
             return []
 
@@ -23,7 +25,7 @@ class HoldStrategy:
 
         return [
             Order(
-                ticker="BTC",
+                ticker=TICKER,
                 side=OrderSide.BUY,
                 quantity=quantity,
                 order_type=OrderType.MARKET,

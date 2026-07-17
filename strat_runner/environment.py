@@ -1,8 +1,9 @@
+from collections import defaultdict
 from datetime import datetime
 from decimal import Decimal
 from pathlib import Path
 
-from data.loader import load_candles
+from data.loader import group_candles_by_time, load_candles_many
 from models import Account, Candle, Context, Order
 from recorder import Recorder
 
@@ -12,7 +13,7 @@ class Environment:
         self,
         strategy,
         mock_executor,
-        data_file: str,
+        data_files: str | list[str],
         full_debug_runs: bool = False,
     ):
         self.strategy = strategy
@@ -20,7 +21,9 @@ class Environment:
         self.full_debug_runs = full_debug_runs
 
         project_dir = Path(__file__).parent
-        self.data_file = project_dir / data_file
+        if isinstance(data_files, str):
+            data_files = [data_files]
+        self.data_files = [project_dir / path for path in data_files]
         self.account = Account(balances={"USD": Decimal("10000")})
         self.positions = []
         strategy_name = type(strategy).__name__.removesuffix("Strategy").lower()
@@ -31,13 +34,19 @@ class Environment:
         )
 
     def run(self):
-        candles = load_candles(self.data_file)
-        history = []
+        candles = load_candles_many(self.data_files)
+        bars_by_time = group_candles_by_time(candles)
+        history: dict[str, list[Candle]] = defaultdict(list)
+        last_prices: dict[str, Decimal] = {}
 
-        for step, candle in enumerate(candles):
-            history.append(candle)
-            context = self._build_context(candle, history)
+        for step, (time, bar_candles) in enumerate(bars_by_time.items()):
+            prices = {candle.ticker: candle.close for candle in bar_candles}
+            last_prices.update(prices)
 
+            for candle in bar_candles:
+                history[candle.ticker].append(candle)
+
+            context = self._build_context(time, history)
             snapshot_path = self.recorder.save_snapshot(step, context)
             orders = self.strategy.decide(context)
 
@@ -45,42 +54,45 @@ class Environment:
                 orders,
                 self.account,
                 self.positions,
-                {candle.ticker: candle.close},
+                last_prices,
             )
 
-            equity = self._mark_to_market(candle)
+            equity = self._mark_to_market(last_prices)
             self.recorder.record_step(
-                self._step_record(step, candle, orders, equity, snapshot_path)
+                self._step_record(step, time, last_prices, orders, equity, snapshot_path)
             )
 
-    def _build_context(self, candle: Candle, history: list[Candle]) -> Context:
+    def _build_context(
+        self, time: datetime, history: dict[str, list[Candle]]
+    ) -> Context:
         return Context(
-            time=candle.time,
-            candles=history.copy(),
+            time=time,
+            candles={ticker: list(candles) for ticker, candles in history.items()},
             account=self.account,
             positions=self.positions,
         )
 
-    def _mark_to_market(self, candle: Candle) -> Decimal:
+    def _mark_to_market(self, prices: dict[str, Decimal]) -> Decimal:
         equity = self.account.balances["USD"]
 
         for position in self.positions:
-            equity += position.quantity * candle.close
+            equity += position.quantity * prices[position.ticker]
 
         return equity
 
     def _step_record(
         self,
         step: int,
-        candle: Candle,
+        time: datetime,
+        prices: dict[str, Decimal],
         orders: list[Order],
         equity: Decimal,
         snapshot_path: Path | None,
     ) -> dict:
         record = {
             "step": step,
-            "time": str(candle.time),
-            "price": str(candle.close),
+            "time": str(time),
+            "prices": {ticker: str(price) for ticker, price in prices.items()},
             "decision": [
                 {
                     "ticker": order.ticker,

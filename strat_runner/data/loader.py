@@ -1,4 +1,5 @@
 import csv
+from collections import defaultdict
 from datetime import datetime
 from decimal import Decimal
 from pathlib import Path
@@ -26,3 +27,17 @@ def load_candles(data_file: Path | str) -> list[Candle]:
             )
 
     return candles
+
+
+def load_candles_many(data_files: list[Path | str]) -> list[Candle]:
+    candles: list[Candle] = []
+    for data_file in data_files:
+        candles.extend(load_candles(data_file))
+    return candles
+
+
+def group_candles_by_time(candles: list[Candle]) -> dict[datetime, list[Candle]]:
+    by_time: dict[datetime, list[Candle]] = defaultdict(list)
+    for candle in candles:
+        by_time[candle.time].append(candle)
+    return dict(sorted(by_time.items()))

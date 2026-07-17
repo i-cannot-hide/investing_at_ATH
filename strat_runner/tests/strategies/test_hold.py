@@ -5,19 +5,39 @@ from models import Account, Candle, Context, OrderSide, OrderType
 from strategies.hold import HoldStrategy, MIN_USD
 
 
-def make_context(*, usd="10000", close="25000", candles=True):
-    candle = Candle(
-        time=datetime(2021, 1, 1),
-        ticker="BTC",
-        open=Decimal(close),
-        high=Decimal(close),
-        low=Decimal(close),
-        close=Decimal(close),
+def make_candle(ticker: str, close: str, time: datetime | None = None) -> Candle:
+    price = Decimal(close)
+    return Candle(
+        time=time or datetime(2021, 1, 1),
+        ticker=ticker,
+        open=price,
+        high=price,
+        low=price,
+        close=price,
         volume=Decimal("1"),
     )
+
+
+def make_context(
+    *,
+    usd="10000",
+    close="25000",
+    candles: dict[str, list[Candle]] | bool = True,
+):
+    if candles is True:
+        candle_map = {"BTC": [make_candle("BTC", close)]}
+    elif candles is False:
+        candle_map = {}
+    else:
+        candle_map = candles
+
+    time = next(
+        (candle.time for series in candle_map.values() for candle in series),
+        datetime(2021, 1, 1),
+    )
     return Context(
-        time=candle.time,
-        candles=[candle] if candles else [],
+        time=time,
+        candles=candle_map,
         account=Account(balances={"USD": Decimal(usd)}),
         positions=[],
     )
@@ -56,6 +76,15 @@ def test_skips_when_no_candles():
     assert strategy.decide(make_context(candles=False)) == []
 
 
+def test_skips_when_no_btc_candles():
+    strategy = HoldStrategy()
+    context = make_context(
+        candles={"ETH": [make_candle("ETH", "2000")]},
+    )
+
+    assert strategy.decide(context) == []
+
+
 def test_skips_when_price_is_zero():
     strategy = HoldStrategy()
 
@@ -68,34 +97,39 @@ def test_skips_when_price_is_negative():
     assert strategy.decide(make_context(close="-1")) == []
 
 
-def test_uses_latest_candle_close():
+def test_uses_latest_btc_close():
     strategy = HoldStrategy()
-    older = Candle(
-        time=datetime(2021, 1, 1),
-        ticker="BTC",
-        open=Decimal("100"),
-        high=Decimal("100"),
-        low=Decimal("100"),
-        close=Decimal("100"),
-        volume=Decimal("1"),
-    )
-    newer = Candle(
-        time=datetime(2021, 1, 2),
-        ticker="BTC",
-        open=Decimal("200"),
-        high=Decimal("200"),
-        low=Decimal("200"),
-        close=Decimal("200"),
-        volume=Decimal("1"),
-    )
-    context = Context(
-        time=newer.time,
-        candles=[older, newer],
-        account=Account(balances={"USD": Decimal("1000")}),
-        positions=[],
+    context = make_context(
+        usd="1000",
+        candles={
+            "BTC": [
+                make_candle("BTC", "100", datetime(2021, 1, 1)),
+                make_candle("BTC", "200", datetime(2021, 1, 2)),
+            ],
+            "ETH": [
+                make_candle("ETH", "3000", datetime(2021, 1, 2)),
+            ],
+        },
     )
 
     orders = strategy.decide(context)
 
     assert len(orders) == 1
     assert orders[0].quantity == Decimal("1000") / Decimal("200")
+
+
+def test_ignores_other_assets_when_buying_btc():
+    strategy = HoldStrategy()
+    context = make_context(
+        usd="10000",
+        candles={
+            "BTC": [make_candle("BTC", "25000")],
+            "ETH": [make_candle("ETH", "1")],
+        },
+    )
+
+    orders = strategy.decide(context)
+
+    assert len(orders) == 1
+    assert orders[0].ticker == "BTC"
+    assert orders[0].quantity == Decimal("10000") / Decimal("25000")

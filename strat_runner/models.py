@@ -48,6 +48,6 @@ class Account:
 @dataclass
 class Context:
     time: datetime
-    candles: list[Candle]
+    candles: dict[str, list[Candle]]
     account: Account
     positions: list[Position]
