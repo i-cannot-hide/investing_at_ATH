@@ -1,3 +1,4 @@
+from datetime import datetime
 from decimal import Decimal
 from pathlib import Path
 
@@ -7,16 +8,27 @@ from recorder import Recorder
 
 
 class Environment:
-    def __init__(self, strategy, mock_executor, data_file: str):
+    def __init__(
+        self,
+        strategy,
+        mock_executor,
+        data_file: str,
+        full_debug_runs: bool = False,
+    ):
         self.strategy = strategy
         self.mock_executor = mock_executor
+        self.full_debug_runs = full_debug_runs
 
         project_dir = Path(__file__).parent
         self.data_file = project_dir / data_file
         self.account = Account(balances={"USD": Decimal("10000")})
         self.positions = []
         strategy_name = type(strategy).__name__.removesuffix("Strategy").lower()
-        self.recorder = Recorder(project_dir / "runs" / f"{strategy_name}_001")
+        run_id = datetime.now().strftime("%y-%m-%d_%H-%M")
+        self.recorder = Recorder(
+            project_dir / "runs" / f"{strategy_name}_{run_id}",
+            full_debug_runs=full_debug_runs,
+        )
 
     def run(self):
         candles = load_candles(self.data_file)
@@ -63,9 +75,9 @@ class Environment:
         candle: Candle,
         orders: list[Order],
         equity: Decimal,
-        snapshot_path: Path,
+        snapshot_path: Path | None,
     ) -> dict:
-        return {
+        record = {
             "step": step,
             "time": str(candle.time),
             "price": str(candle.close),
@@ -91,5 +103,7 @@ class Environment:
                 for position in self.positions
             ],
             "equity": str(equity),
-            "source_snapshot": str(snapshot_path),
         }
+        if snapshot_path is not None:
+            record["source_snapshot"] = str(snapshot_path)
+        return record
