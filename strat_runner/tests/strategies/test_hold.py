@@ -43,7 +43,7 @@ def make_context(
     )
 
 
-def test_buys_all_available_usd():
+def test_buys_all_available_usd_as_total_value():
     strategy = HoldStrategy()
     orders = strategy.decide(make_context(usd="10000", close="25000"))
 
@@ -52,7 +52,8 @@ def test_buys_all_available_usd():
     assert order.ticker == "BTC"
     assert order.side == OrderSide.BUY
     assert order.order_type == OrderType.MARKET
-    assert order.quantity == Decimal("10000") / Decimal("25000")
+    assert order.total_value == Decimal("10000")
+    assert order.quantity is None
 
 
 def test_skips_when_usd_below_minimum():
@@ -67,7 +68,8 @@ def test_buys_when_usd_equals_minimum():
     orders = strategy.decide(make_context(usd=str(MIN_USD), close="100"))
 
     assert len(orders) == 1
-    assert orders[0].quantity == MIN_USD / Decimal("100")
+    assert orders[0].total_value == MIN_USD
+    assert orders[0].quantity is None
 
 
 def test_skips_when_no_candles():
@@ -99,7 +101,8 @@ def test_buys_configured_ticker():
 
     assert len(orders) == 1
     assert orders[0].ticker == "ETH"
-    assert orders[0].quantity == Decimal("1000") / Decimal("2000")
+    assert orders[0].total_value == Decimal("1000")
+    assert orders[0].quantity is None
 
 
 def test_skips_when_price_is_zero():
@@ -114,7 +117,7 @@ def test_skips_when_price_is_negative():
     assert strategy.decide(make_context(close="-1")) == []
 
 
-def test_uses_latest_btc_close():
+def test_uses_latest_candle_for_price_check():
     strategy = HoldStrategy()
     context = make_context(
         usd="1000",
@@ -132,7 +135,7 @@ def test_uses_latest_btc_close():
     orders = strategy.decide(context)
 
     assert len(orders) == 1
-    assert orders[0].quantity == Decimal("1000") / Decimal("200")
+    assert orders[0].total_value == Decimal("1000")
 
 
 def test_ignores_other_assets_when_buying_btc():
@@ -149,4 +152,4 @@ def test_ignores_other_assets_when_buying_btc():
 
     assert len(orders) == 1
     assert orders[0].ticker == "BTC"
-    assert orders[0].quantity == Decimal("10000") / Decimal("25000")
+    assert orders[0].total_value == Decimal("10000")

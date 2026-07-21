@@ -24,7 +24,8 @@ class BuyBelowStrategy:
         if not candles:
             return []
 
-        price = candles[-1].close
+        current_candle = candles[-1]
+        price = current_candle.close
         if price <= 0 or price >= self.target_price:
             return []
 

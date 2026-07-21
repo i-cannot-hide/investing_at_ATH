@@ -134,7 +134,10 @@ class Environment:
                 {
                     "ticker": order.ticker,
                     "side": order.side.value,
-                    "quantity": str(order.quantity),
+                    "quantity": str(order.quantity) if order.quantity is not None else None,
+                    "total_value": (
+                        str(order.total_value) if order.total_value is not None else None
+                    ),
                     "order_type": order.order_type.value,
                 }
                 for order in orders

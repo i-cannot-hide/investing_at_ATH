@@ -7,12 +7,19 @@ from executors.mock_executor import MockExecutor
 from models import Account, Candle, Order, OrderSide, OrderType, Position
 
 
-def make_order(side: OrderSide, quantity: str, ticker: str = "BTC") -> Order:
+def make_order(
+    side: OrderSide,
+    *,
+    quantity: str | None = None,
+    total_value: str | None = None,
+    ticker: str = "BTC",
+) -> Order:
     return Order(
         ticker=ticker,
         side=side,
-        quantity=Decimal(quantity),
         order_type=OrderType.MARKET,
+        quantity=Decimal(quantity) if quantity is not None else None,
+        total_value=Decimal(total_value) if total_value is not None else None,
     )
 
 
@@ -35,7 +42,7 @@ def test_buy_creates_position():
     executor = MockExecutor()
 
     executor.execute(
-        [make_order(OrderSide.BUY, "2")],
+        [make_order(OrderSide.BUY, quantity="2")],
         account,
         positions,
         {"BTC": make_candle("100")},
@@ -48,19 +55,37 @@ def test_buy_creates_position():
     assert positions[0].average_price == Decimal("100")
 
 
+def test_buy_by_total_value():
+    account = Account(balances={"USD": Decimal("10000")})
+    positions: list[Position] = []
+    executor = MockExecutor()
+
+    executor.execute(
+        [make_order(OrderSide.BUY, total_value="1000")],
+        account,
+        positions,
+        {"BTC": make_candle("100")},
+    )
+
+    assert account.balances["USD"] == Decimal("9000")
+    assert len(positions) == 1
+    assert positions[0].quantity == Decimal("10")
+    assert positions[0].average_price == Decimal("100")
+
+
 def test_second_buy_merges_and_updates_average():
     account = Account(balances={"USD": Decimal("10000")})
     positions: list[Position] = []
     executor = MockExecutor()
 
     executor.execute(
-        [make_order(OrderSide.BUY, "1")],
+        [make_order(OrderSide.BUY, quantity="1")],
         account,
         positions,
         {"BTC": make_candle("100")},
     )
     executor.execute(
-        [make_order(OrderSide.BUY, "1")],
+        [make_order(OrderSide.BUY, quantity="1")],
         account,
         positions,
         {"BTC": make_candle("200")},
@@ -80,7 +105,7 @@ def test_partial_sell_keeps_average_price():
     executor = MockExecutor()
 
     executor.execute(
-        [make_order(OrderSide.SELL, "1")],
+        [make_order(OrderSide.SELL, quantity="1")],
         account,
         positions,
         {"BTC": make_candle("150")},
@@ -100,7 +125,7 @@ def test_full_sell_removes_position():
     executor = MockExecutor()
 
     executor.execute(
-        [make_order(OrderSide.SELL, "2")],
+        [make_order(OrderSide.SELL, quantity="2")],
         account,
         positions,
         {"BTC": make_candle("150")},
@@ -119,7 +144,7 @@ def test_sell_too_much_raises():
 
     with pytest.raises(ValueError, match="Not enough quantity"):
         executor.execute(
-            [make_order(OrderSide.SELL, "2")],
+            [make_order(OrderSide.SELL, quantity="2")],
             account,
             positions,
             {"BTC": make_candle("150")},
@@ -133,7 +158,7 @@ def test_sell_unknown_ticker_raises():
 
     with pytest.raises(ValueError, match="Not enough quantity"):
         executor.execute(
-            [make_order(OrderSide.SELL, "1")],
+            [make_order(OrderSide.SELL, quantity="1")],
             account,
             positions,
             {"BTC": make_candle("150")},
@@ -147,7 +172,7 @@ def test_buy_insufficient_balance_raises():
 
     with pytest.raises(ValueError, match="Not enough balance"):
         executor.execute(
-            [make_order(OrderSide.BUY, "1")],
+            [make_order(OrderSide.BUY, quantity="1")],
             account,
             positions,
             {"BTC": make_candle("100")},
@@ -161,8 +186,8 @@ def test_positions_for_different_tickers_stay_separate():
 
     executor.execute(
         [
-            make_order(OrderSide.BUY, "1", ticker="BTC"),
-            make_order(OrderSide.BUY, "2", ticker="ETH"),
+            make_order(OrderSide.BUY, quantity="1", ticker="BTC"),
+            make_order(OrderSide.BUY, quantity="2", ticker="ETH"),
         ],
         account,
         positions,
@@ -195,7 +220,7 @@ def test_market_fill_uses_candle_close():
     )
 
     executor.execute(
-        [make_order(OrderSide.BUY, "1")],
+        [make_order(OrderSide.BUY, quantity="1")],
         account,
         positions,
         {"BTC": candle},

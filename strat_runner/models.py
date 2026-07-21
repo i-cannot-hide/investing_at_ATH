@@ -29,8 +29,9 @@ class Candle:
 class Order:
     ticker: str
     side: OrderSide
-    quantity: Decimal
     order_type: OrderType
+    quantity: Decimal | None = None
+    total_value: Decimal | None = None
 
 
 @dataclass

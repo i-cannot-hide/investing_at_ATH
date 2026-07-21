@@ -19,12 +19,24 @@ class MockExecutor:
                 raise NotImplementedError("Limit orders are not implemented")
 
             price = candle.close
-            
+            quantity = self._resolve_quantity(order, price)
+
             if order.side == OrderSide.BUY:
-                self._buy(order, price, account, positions)
+                self._buy(order.ticker, quantity, price, account, positions)
 
             elif order.side == OrderSide.SELL:
-                self._sell(order, price, account, positions)
+                self._sell(order.ticker, quantity, price, account, positions)
+
+    def _resolve_quantity(self, order: Order, price: Decimal) -> Decimal:
+        if order.quantity is not None and order.total_value is not None:
+            raise ValueError("Order must specify quantity or total_value, not both")
+        if order.total_value is not None:
+            if price <= 0:
+                raise ValueError(f"Cannot size order for {order.ticker}: price is {price}")
+            return order.total_value / price
+        if order.quantity is not None:
+            return order.quantity
+        raise ValueError("Order must specify quantity or total_value")
 
     def _find_position(
         self, positions: list[Position], ticker: str
@@ -35,43 +47,51 @@ class MockExecutor:
         return None, None
 
     def _buy(
-        self, order: Order, price: Decimal, account: Account, positions: list[Position]
+        self,
+        ticker: str,
+        quantity: Decimal,
+        price: Decimal,
+        account: Account,
+        positions: list[Position],
     ):
-        cost = order.quantity * price
+        cost = quantity * price
 
         if account.balances["USD"] < cost:
-            raise ValueError(f"Not enough balance to buy {order.quantity} {order.ticker}")
+            raise ValueError(f"Not enough balance to buy {quantity} {ticker}")
 
         account.balances["USD"] -= cost
 
-        _, position = self._find_position(positions, order.ticker)
+        _, position = self._find_position(positions, ticker)
         if position is None:
             positions.append(
                 Position(
-                    ticker=order.ticker,
-                    quantity=order.quantity,
+                    ticker=ticker,
+                    quantity=quantity,
                     average_price=price,
                 )
             )
             return
 
-        new_quantity = position.quantity + order.quantity
+        new_quantity = position.quantity + quantity
         position.average_price = (
-            position.quantity * position.average_price + order.quantity * price
+            position.quantity * position.average_price + quantity * price
         ) / new_quantity
         position.quantity = new_quantity
 
     def _sell(
-        self, order: Order, price: Decimal, account: Account, positions: list[Position]
+        self,
+        ticker: str,
+        quantity: Decimal,
+        price: Decimal,
+        account: Account,
+        positions: list[Position],
     ):
-        index, position = self._find_position(positions, order.ticker)
-        if position is None or position.quantity < order.quantity:
-            raise ValueError(
-                f"Not enough quantity to sell {order.quantity} {order.ticker}"
-            )
+        index, position = self._find_position(positions, ticker)
+        if position is None or position.quantity < quantity:
+            raise ValueError(f"Not enough quantity to sell {quantity} {ticker}")
 
-        position.quantity -= order.quantity
-        account.balances["USD"] += order.quantity * price
+        position.quantity -= quantity
+        account.balances["USD"] += quantity * price
 
         if position.quantity == 0:
             positions.pop(index)

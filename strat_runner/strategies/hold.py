@@ -19,17 +19,16 @@ class HoldStrategy:
         if not candles:
             return []
 
-        price = candles[-1].close
+        current_candle = candles[-1]
+        price = current_candle.close
         if price <= 0:
             return []
-
-        quantity = usd / price
 
         return [
             Order(
                 ticker=self.ticker,
                 side=OrderSide.BUY,
-                quantity=quantity,
                 order_type=OrderType.MARKET,
+                total_value=usd,
             )
         ]
