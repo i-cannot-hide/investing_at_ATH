@@ -18,7 +18,9 @@ class MockExecutor:
             if order.order_type == OrderType.LIMIT:
                 raise NotImplementedError("Limit orders are not implemented")
 
-            price = candle.close
+            if order.order_type == OrderType.MARKET:
+                price = candle.close
+
             quantity = self._resolve_quantity(order, price)
 
             if order.side == OrderSide.BUY:
@@ -28,15 +30,11 @@ class MockExecutor:
                 self._sell(order.ticker, quantity, price, account, positions)
 
     def _resolve_quantity(self, order: Order, price: Decimal) -> Decimal:
-        if order.quantity is not None and order.total_value is not None:
-            raise ValueError("Order must specify quantity or total_value, not both")
         if order.total_value is not None:
             if price <= 0:
                 raise ValueError(f"Cannot size order for {order.ticker}: price is {price}")
             return order.total_value / price
-        if order.quantity is not None:
-            return order.quantity
-        raise ValueError("Order must specify quantity or total_value")
+        return order.quantity
 
     def _find_position(
         self, positions: list[Position], ticker: str

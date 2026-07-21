@@ -138,6 +138,7 @@ class Environment:
                     "total_value": (
                         str(order.total_value) if order.total_value is not None else None
                     ),
+                    "price": str(order.price) if order.price is not None else None,
                     "order_type": order.order_type.value,
                 }
                 for order in orders

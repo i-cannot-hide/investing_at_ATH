@@ -32,6 +32,19 @@ class Order:
     order_type: OrderType
     quantity: Decimal | None = None
     total_value: Decimal | None = None
+    price: Decimal | None = None
+
+    def __post_init__(self):
+        has_quantity = self.quantity is not None
+        has_value = self.total_value is not None
+
+        if has_quantity == has_value:
+            raise ValueError("Order must specify exactly one of quantity or total_value")
+
+        if (self.order_type == OrderType.MARKET) and (self.price is not None):
+            raise ValueError("Market orders must not include price")
+        elif (self.order_type == OrderType.LIMIT) and (self.price is None):
+            raise ValueError("Limit orders must include price")
 
 
 @dataclass
