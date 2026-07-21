@@ -3,7 +3,7 @@ from datetime import datetime
 from decimal import Decimal
 from pathlib import Path
 
-from data.loader import group_candles_by_time, load_candles_many
+from data.loader import filter_candles_by_date, group_candles_by_time, load_candles_many
 from models import Account, Candle, Context, Order
 from recorder import Recorder
 from run_registry import (
@@ -22,11 +22,15 @@ class Environment:
         data_files: str | list[str],
         full_debug_runs: bool = False,
         interval: str = "1d",
+        start_date: str | datetime | None = None,
+        end_date: str | datetime | None = None,
     ):
         self.strategy = strategy
         self.mock_executor = mock_executor
         self.full_debug_runs = full_debug_runs
         self.interval = interval
+        self.start_date = start_date
+        self.end_date = end_date
 
         project_dir = Path(__file__).parent
         if isinstance(data_files, str):
@@ -41,8 +45,15 @@ class Environment:
 
     def run(self):
         candles = load_candles_many(self.data_files)
+        candles = filter_candles_by_date(
+            candles,
+            start_date=self.start_date,
+            end_date=self.end_date,
+        )
         if not candles:
-            raise ValueError("No candles loaded from data files")
+            raise ValueError(
+                "No candles loaded from data files for the given date range"
+            )
 
         bars_by_time = group_candles_by_time(candles)
         history: dict[str, list[Candle]] = defaultdict(list)

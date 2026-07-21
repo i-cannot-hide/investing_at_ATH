@@ -69,6 +69,8 @@ def find_entries(
     folder: str | None = None,
     assets: str | list[str] | None = None,
     params: dict | None = None,
+    start_date: str | None = None,
+    end_date: str | None = None,
 ) -> list[dict]:
     """Return registry entries matching any provided filters (all optional)."""
     wanted_assets = _normalize_assets(assets)
@@ -82,6 +84,10 @@ def find_entries(
         if folder is not None and entry.get("folder") != folder:
             continue
         if wanted_assets is not None and entry.get("assets") != wanted_assets:
+            continue
+        if start_date is not None and entry.get("start_date") != start_date:
+            continue
+        if end_date is not None and entry.get("end_date") != end_date:
             continue
         if params is not None:
             entry_params = {
@@ -102,6 +108,8 @@ def latest_entry(
     folder: str | None = None,
     assets: str | list[str] | None = None,
     params: dict | None = None,
+    start_date: str | None = None,
+    end_date: str | None = None,
 ) -> dict:
     matches = find_entries(
         runs_dir,
@@ -110,12 +118,15 @@ def latest_entry(
         folder=folder,
         assets=assets,
         params=params,
+        start_date=start_date,
+        end_date=end_date,
     )
     if not matches:
         raise FileNotFoundError(
             "No registry entries matched filters: "
             f"strategy={strategy!r}, id={id!r}, folder={folder!r}, "
-            f"assets={assets!r}, params={params!r}"
+            f"assets={assets!r}, params={params!r}, "
+            f"start_date={start_date!r}, end_date={end_date!r}"
         )
     return matches[-1]
 
