@@ -24,13 +24,11 @@ class BuyBelowStrategy:
         if price is None or price <= 0 or price >= self.target_price:
             return []
 
-        quantity = usd / price
-
         return [
             Order(
                 ticker=self.ticker,
                 side=OrderSide.BUY,
-                quantity=quantity,
                 order_type=OrderType.MARKET,
+                total_value=usd,
             )
         ]

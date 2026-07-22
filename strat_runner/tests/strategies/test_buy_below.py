@@ -63,7 +63,8 @@ def test_buys_when_price_under_target():
     assert order.ticker == "BTC"
     assert order.side == OrderSide.BUY
     assert order.order_type == OrderType.MARKET
-    assert order.quantity == Decimal("10000") / Decimal("19000")
+    assert order.quantity is None
+    assert order.total_value == Decimal("10000")
 
 
 def test_skips_when_price_equals_target():
@@ -97,7 +98,8 @@ def test_buys_when_usd_equals_minimum():
     orders = strategy.decide(make_context(usd=str(MIN_USD), open_price="100"))
 
     assert len(orders) == 1
-    assert orders[0].quantity == MIN_USD / Decimal("100")
+    assert orders[0].quantity is None
+    assert orders[0].total_value == MIN_USD
 
 
 def test_skips_when_no_open_price():
@@ -124,7 +126,8 @@ def test_buys_configured_ticker():
 
     assert len(orders) == 1
     assert orders[0].ticker == "ETH"
-    assert orders[0].quantity == Decimal("1000") / Decimal("2000")
+    assert orders[0].quantity is None
+    assert orders[0].total_value == Decimal("1000")
 
 
 def test_skips_when_price_is_zero():
@@ -154,4 +157,5 @@ def test_uses_open_price_not_history_close():
     orders = strategy.decide(context)
 
     assert len(orders) == 1
-    assert orders[0].quantity == Decimal("1000") / Decimal("18000")
+    assert orders[0].quantity is None
+    assert orders[0].total_value == Decimal("1000")
