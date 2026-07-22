@@ -254,3 +254,25 @@ def test_market_total_value_sized_at_close_not_open():
     assert positions[0].quantity == Decimal("10")
     assert positions[0].average_price == Decimal("100")
     assert account.balances["USD"] == Decimal("0")
+
+
+def test_limit_orders_not_implemented():
+    account = Account(balances={"USD": Decimal("1000")})
+    positions: list[Position] = []
+    executor = MockExecutor()
+
+    order = Order(
+        ticker="BTC",
+        side=OrderSide.BUY,
+        order_type=OrderType.LIMIT,
+        quantity=Decimal("1"),
+        price=Decimal("100"),
+    )
+
+    with pytest.raises(NotImplementedError, match="Limit orders"):
+        executor.execute(
+            [order],
+            account,
+            positions,
+            {"BTC": make_candle("100")},
+        )

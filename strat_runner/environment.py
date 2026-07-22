@@ -24,6 +24,7 @@ class Environment:
         interval: str = "1d",
         start_date: str | datetime | None = None,
         end_date: str | datetime | None = None,
+        runs_dir: Path | str | None = None,
     ):
         self.strategy = strategy
         self.mock_executor = mock_executor
@@ -35,11 +36,14 @@ class Environment:
         project_dir = Path(__file__).parent
         if isinstance(data_files, str):
             data_files = [data_files]
-        self.data_files = [project_dir / path for path in data_files]
+        self.data_files = [
+            path if Path(path).is_absolute() else project_dir / path
+            for path in data_files
+        ]
         self.account = Account(balances={"USD": Decimal("10000")})
         self.positions = []
 
-        self.runs_dir = project_dir / "runs"
+        self.runs_dir = Path(runs_dir) if runs_dir is not None else project_dir / "runs"
         self.run_id, self.date_time, run_folder = allocate_run_dir(self.runs_dir)
         self.recorder = Recorder(run_folder, full_debug_runs=full_debug_runs)
 

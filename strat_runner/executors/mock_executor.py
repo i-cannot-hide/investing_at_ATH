@@ -21,8 +21,6 @@ class MockExecutor:
             # Market orders execute on the current candle at close.
             if order.order_type == OrderType.MARKET:
                 price = candle.close
-            else:
-                raise ValueError(f"Unsupported order type: {order.order_type}")
 
             quantity = self._resolve_quantity(order, price)
 
