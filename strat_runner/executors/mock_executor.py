@@ -11,24 +11,31 @@ class MockExecutor:
         positions: list[Position],
         candles: dict[str, Candle],
     ):
-
         for order in orders:
             candle = candles[order.ticker]
 
-            if order.order_type == OrderType.LIMIT:
-                raise NotImplementedError("Limit orders are not implemented")
-
-            # Market orders execute on the current candle at close.
             if order.order_type == OrderType.MARKET:
                 price = candle.close
+            elif order.order_type == OrderType.LIMIT:
+                if not self.limit_is_triggered(order, candle):
+                    continue
+                price = order.price
+            else:
+                raise ValueError(f"Unsupported order type: {order.order_type}")
 
             quantity = self._resolve_quantity(order, price)
 
             if order.side == OrderSide.BUY:
                 self._buy(order.ticker, quantity, price, account, positions)
-
             elif order.side == OrderSide.SELL:
                 self._sell(order.ticker, quantity, price, account, positions)
+
+    def limit_is_triggered(self, order: Order, candle: Candle) -> bool:
+        if order.side == OrderSide.BUY:
+            return candle.low <= order.price
+        if order.side == OrderSide.SELL:
+            return candle.high >= order.price
+        return False
 
     def _resolve_quantity(self, order: Order, price: Decimal) -> Decimal:
         if order.total_value is not None:

@@ -6,7 +6,7 @@ import pytest
 
 from environment import Environment
 from executors.mock_executor import MockExecutor
-from models import Context, Order
+from models import Context, Decision, Order, OrderSide, OrderType
 from run_registry import load_registry
 from strategies.hold import HoldStrategy
 
@@ -26,7 +26,7 @@ class RecordingStrategy:
         self.strategy = strategy
         self.contexts: list[Context] = []
 
-    def decide(self, context: Context) -> list[Order]:
+    def decide(self, context: Context) -> Decision | None:
         self.contexts.append(
             Context(
                 time=context.time,
@@ -37,9 +37,56 @@ class RecordingStrategy:
                 current_open_prices=dict(context.current_open_prices),
                 account=context.account,
                 positions=list(context.positions),
+                open_orders=list(context.open_orders),
             )
         )
         return self.strategy.decide(context)
+
+
+class LimitThenCancelStrategy:
+    """Day 1: place limit buy. Day 2: cancel it if still open."""
+
+    def decide(self, context: Context) -> Decision | None:
+        if not context.history.get("BTC") and not context.open_orders:
+            return Decision(
+                orders=[
+                    Order(
+                        ticker="BTC",
+                        side=OrderSide.BUY,
+                        order_type=OrderType.LIMIT,
+                        quantity=Decimal("1"),
+                        price=Decimal("50"),
+                    )
+                ]
+            )
+        if context.open_orders:
+            return Decision(
+                cancel_order_ids=[order.id for order in context.open_orders]
+            )
+        return None
+
+
+class LimitBuyStrategy:
+    def __init__(self, price: str, quantity: str = "1"):
+        self.price = Decimal(price)
+        self.quantity = Decimal(quantity)
+        self._placed = False
+
+    def decide(self, context: Context) -> Decision | None:
+        if self._placed or context.open_orders:
+            return None
+        self._placed = True
+        return Decision(
+            orders=[
+                Order(
+                    ticker="BTC",
+                    side=OrderSide.BUY,
+                    order_type=OrderType.LIMIT,
+                    quantity=self.quantity,
+                    price=self.price,
+                )
+            ]
+        )
 
 
 @pytest.fixture
@@ -169,3 +216,93 @@ def test_empty_date_range_raises(tmp_path: Path, btc_csv: Path):
 
     with pytest.raises(ValueError, match="No candles"):
         environment.run()
+
+
+def test_limit_order_rests_then_fills_when_touched(tmp_path: Path):
+    csv_path = tmp_path / "btc.csv"
+    # Day 1 low=95 never hits buy@90. Day 2 low=85 fills at 90.
+    write_btc_csv(
+        csv_path,
+        [
+            ("2021-01-01", "100", "110", "95", "105"),
+            ("2021-01-02", "105", "110", "85", "100"),
+        ],
+    )
+    recorder = RecordingStrategy(LimitBuyStrategy(price="90"))
+    environment = Environment(
+        recorder,
+        MockExecutor(),
+        [str(csv_path)],
+        runs_dir=tmp_path / "runs",
+    )
+    environment.run()
+
+    assert len(recorder.contexts[0].open_orders) == 0
+    assert len(recorder.contexts[1].open_orders) == 1
+    assert recorder.contexts[1].open_orders[0].id is not None
+    assert recorder.contexts[1].open_orders[0].price == Decimal("90")
+
+    assert environment.open_orders == []
+    assert len(environment.positions) == 1
+    assert environment.positions[0].quantity == Decimal("1")
+    assert environment.positions[0].average_price == Decimal("90")
+    assert environment.account.balances["USD"] == Decimal("9910")
+
+
+def test_strategy_can_cancel_open_orders(tmp_path: Path):
+    csv_path = tmp_path / "btc.csv"
+    write_btc_csv(
+        csv_path,
+        [
+            ("2021-01-01", "100", "110", "95", "105"),
+            ("2021-01-02", "105", "110", "95", "100"),
+            ("2021-01-03", "100", "110", "40", "50"),
+        ],
+    )
+    recorder = RecordingStrategy(LimitThenCancelStrategy())
+    environment = Environment(
+        recorder,
+        MockExecutor(),
+        [str(csv_path)],
+        runs_dir=tmp_path / "runs",
+    )
+    environment.run()
+
+    assert len(recorder.contexts[1].open_orders) == 1
+    assert recorder.contexts[2].open_orders == []
+    assert environment.open_orders == []
+    assert environment.positions == []
+    assert environment.account.balances["USD"] == Decimal("10000")
+
+    entries = load_registry(tmp_path / "runs")
+    steps_file = tmp_path / "runs" / entries[0]["folder"] / "steps.jsonl"
+    steps = [json.loads(line) for line in steps_file.read_text().splitlines()]
+    assert steps[0]["open_orders"][0]["price"] == "50"
+    assert steps[1]["cancel_order_ids"] == [steps[0]["open_orders"][0]["id"]]
+    assert steps[1]["open_orders"] == []
+
+
+def test_new_limit_waits_until_next_bar_to_fill(tmp_path: Path):
+    csv_path = tmp_path / "btc.csv"
+    # Placement bar already touches 90, but new limits fill starting next bar.
+    write_btc_csv(
+        csv_path,
+        [
+            ("2021-01-01", "100", "110", "80", "105"),
+            ("2021-01-02", "105", "110", "85", "100"),
+            ("2021-01-03", "100", "110", "40", "50"),
+        ],
+    )
+    recorder = RecordingStrategy(LimitBuyStrategy(price="90"))
+    environment = Environment(
+        recorder,
+        MockExecutor(),
+        [str(csv_path)],
+        runs_dir=tmp_path / "runs",
+    )
+    environment.run()
+
+    assert len(recorder.contexts[1].open_orders) == 1
+    assert environment.open_orders == []
+    assert environment.positions[0].average_price == Decimal("90")
+    assert environment.account.balances["USD"] == Decimal("9910")

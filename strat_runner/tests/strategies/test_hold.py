@@ -50,10 +50,10 @@ def make_context(
 
 def test_buys_all_available_usd_as_total_value():
     strategy = HoldStrategy()
-    orders = strategy.decide(make_context(usd="10000", open_price="25000"))
+    decision = strategy.decide(make_context(usd="10000", open_price="25000"))
 
-    assert len(orders) == 1
-    order = orders[0]
+    assert len(decision.orders) == 1
+    order = decision.orders[0]
     assert order.ticker == "BTC"
     assert order.side == OrderSide.BUY
     assert order.order_type == OrderType.MARKET
@@ -65,29 +65,29 @@ def test_skips_when_usd_below_minimum():
     strategy = HoldStrategy()
     just_below = MIN_USD - Decimal("0.01")
 
-    assert strategy.decide(make_context(usd=str(just_below))) == []
+    assert strategy.decide(make_context(usd=str(just_below))) is None
 
 
 def test_buys_when_usd_equals_minimum():
     strategy = HoldStrategy()
-    orders = strategy.decide(make_context(usd=str(MIN_USD), open_price="100"))
+    decision = strategy.decide(make_context(usd=str(MIN_USD), open_price="100"))
 
-    assert len(orders) == 1
-    assert orders[0].total_value == MIN_USD
-    assert orders[0].quantity is None
+    assert len(decision.orders) == 1
+    assert decision.orders[0].total_value == MIN_USD
+    assert decision.orders[0].quantity is None
 
 
 def test_skips_when_no_open_price():
     strategy = HoldStrategy()
 
-    assert strategy.decide(make_context(history=False)) == []
+    assert strategy.decide(make_context(history=False)) is None
 
 
 def test_skips_when_open_price_missing_for_ticker():
     strategy = HoldStrategy()
     context = make_context(open_prices={"ETH": Decimal("2000")})
 
-    assert strategy.decide(context) == []
+    assert strategy.decide(context) is None
 
 
 def test_buys_configured_ticker():
@@ -97,24 +97,24 @@ def test_buys_configured_ticker():
         open_prices={"BTC": Decimal("25000"), "ETH": Decimal("2000")},
     )
 
-    orders = strategy.decide(context)
+    decision = strategy.decide(context)
 
-    assert len(orders) == 1
-    assert orders[0].ticker == "ETH"
-    assert orders[0].total_value == Decimal("1000")
-    assert orders[0].quantity is None
+    assert len(decision.orders) == 1
+    assert decision.orders[0].ticker == "ETH"
+    assert decision.orders[0].total_value == Decimal("1000")
+    assert decision.orders[0].quantity is None
 
 
 def test_skips_when_price_is_zero():
     strategy = HoldStrategy()
 
-    assert strategy.decide(make_context(open_price="0")) == []
+    assert strategy.decide(make_context(open_price="0")) is None
 
 
 def test_skips_when_price_is_negative():
     strategy = HoldStrategy()
 
-    assert strategy.decide(make_context(open_price="-1")) == []
+    assert strategy.decide(make_context(open_price="-1")) is None
 
 
 def test_does_not_need_history_to_buy():
@@ -125,10 +125,10 @@ def test_does_not_need_history_to_buy():
         history={},
     )
 
-    orders = strategy.decide(context)
+    decision = strategy.decide(context)
 
-    assert len(orders) == 1
-    assert orders[0].total_value == Decimal("1000")
+    assert len(decision.orders) == 1
+    assert decision.orders[0].total_value == Decimal("1000")
 
 
 def test_ignores_other_assets_when_buying_btc():
@@ -138,8 +138,8 @@ def test_ignores_other_assets_when_buying_btc():
         open_prices={"BTC": Decimal("25000"), "ETH": Decimal("1")},
     )
 
-    orders = strategy.decide(context)
+    decision = strategy.decide(context)
 
-    assert len(orders) == 1
-    assert orders[0].ticker == "BTC"
-    assert orders[0].total_value == Decimal("10000")
+    assert len(decision.orders) == 1
+    assert decision.orders[0].ticker == "BTC"
+    assert decision.orders[0].total_value == Decimal("10000")

@@ -256,23 +256,91 @@ def test_market_total_value_sized_at_close_not_open():
     assert account.balances["USD"] == Decimal("0")
 
 
-def test_limit_orders_not_implemented():
+def make_ohlc_candle(
+    *,
+    open_: str,
+    high: str,
+    low: str,
+    close: str,
+    ticker: str = "BTC",
+) -> Candle:
+    return Candle(
+        time=datetime(2021, 1, 1),
+        ticker=ticker,
+        open=Decimal(open_),
+        high=Decimal(high),
+        low=Decimal(low),
+        close=Decimal(close),
+        volume=Decimal("1"),
+    )
+
+
+def test_limit_buy_fills_at_limit_price_when_low_touches():
     account = Account(balances={"USD": Decimal("1000")})
     positions: list[Position] = []
     executor = MockExecutor()
-
     order = Order(
         ticker="BTC",
         side=OrderSide.BUY,
         order_type=OrderType.LIMIT,
         quantity=Decimal("1"),
-        price=Decimal("100"),
+        price=Decimal("90"),
     )
 
-    with pytest.raises(NotImplementedError, match="Limit orders"):
-        executor.execute(
-            [order],
-            account,
-            positions,
-            {"BTC": make_candle("100")},
-        )
+    executor.execute(
+        [order],
+        account,
+        positions,
+        {"BTC": make_ohlc_candle(open_="100", high="110", low="85", close="105")},
+    )
+
+    assert positions[0].average_price == Decimal("90")
+    assert account.balances["USD"] == Decimal("910")
+
+
+def test_limit_buy_does_not_fill_when_low_stays_above():
+    account = Account(balances={"USD": Decimal("1000")})
+    positions: list[Position] = []
+    executor = MockExecutor()
+    order = Order(
+        ticker="BTC",
+        side=OrderSide.BUY,
+        order_type=OrderType.LIMIT,
+        quantity=Decimal("1"),
+        price=Decimal("90"),
+    )
+
+    executor.execute(
+        [order],
+        account,
+        positions,
+        {"BTC": make_ohlc_candle(open_="100", high="110", low="95", close="105")},
+    )
+
+    assert positions == []
+    assert account.balances["USD"] == Decimal("1000")
+
+
+def test_limit_sell_fills_when_high_touches():
+    account = Account(balances={"USD": Decimal("0")})
+    positions = [
+        Position(ticker="BTC", quantity=Decimal("1"), average_price=Decimal("80"))
+    ]
+    executor = MockExecutor()
+    order = Order(
+        ticker="BTC",
+        side=OrderSide.SELL,
+        order_type=OrderType.LIMIT,
+        quantity=Decimal("1"),
+        price=Decimal("120"),
+    )
+
+    executor.execute(
+        [order],
+        account,
+        positions,
+        {"BTC": make_ohlc_candle(open_="100", high="125", low="95", close="110")},
+    )
+
+    assert positions == []
+    assert account.balances["USD"] == Decimal("120")

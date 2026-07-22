@@ -67,6 +67,25 @@ def test_limit_order_rejects_missing_price():
         )
 
 
+def test_order_gets_id_on_creation():
+    first = Order(
+        ticker="BTC",
+        side=OrderSide.BUY,
+        order_type=OrderType.MARKET,
+        quantity=Decimal("1"),
+    )
+    second = Order(
+        ticker="ETH",
+        side=OrderSide.SELL,
+        order_type=OrderType.MARKET,
+        quantity=Decimal("1"),
+    )
+
+    assert first.id.startswith("o")
+    assert second.id.startswith("o")
+    assert first.id != second.id
+
+
 def test_order_rejects_both_quantity_and_value():
     with pytest.raises(ValueError, match="exactly one"):
         Order(

@@ -1,6 +1,6 @@
 from decimal import Decimal
 
-from models import Context, Order, OrderSide, OrderType
+from models import Context, Decision, Order, OrderSide, OrderType
 
 
 MIN_USD = Decimal("10.00")
@@ -10,20 +10,22 @@ class HoldStrategy:
     def __init__(self, ticker: str = "BTC"):
         self.ticker = ticker
 
-    def decide(self, context: Context) -> list[Order]:
+    def decide(self, context: Context) -> Decision | None:
         usd = context.account.balances.get("USD", Decimal("0"))
         if usd < MIN_USD:
-            return []
+            return None
 
         price = context.current_open_prices.get(self.ticker)
         if price is None or price <= 0:
-            return []
+            return None
 
-        return [
-            Order(
-                ticker=self.ticker,
-                side=OrderSide.BUY,
-                order_type=OrderType.MARKET,
-                total_value=usd,
-            )
-        ]
+        return Decision(
+            orders=[
+                Order(
+                    ticker=self.ticker,
+                    side=OrderSide.BUY,
+                    order_type=OrderType.MARKET,
+                    total_value=usd,
+                )
+            ]
+        )

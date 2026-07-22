@@ -1,7 +1,8 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
 from decimal import Decimal
+from itertools import count
 
 
 class OrderSide(Enum):
@@ -12,6 +13,13 @@ class OrderSide(Enum):
 class OrderType(Enum):
     MARKET = "MARKET"
     LIMIT = "LIMIT"
+
+
+_order_ids = count(1)
+
+
+def _next_order_id() -> str:
+    return f"o{next(_order_ids)}"
 
 
 @dataclass
@@ -33,6 +41,7 @@ class Order:
     quantity: Decimal | None = None
     total_value: Decimal | None = None
     price: Decimal | None = None
+    id: str = field(default_factory=_next_order_id)
 
     def __post_init__(self):
         has_quantity = self.quantity is not None
@@ -45,6 +54,12 @@ class Order:
             raise ValueError("Market orders must not include price")
         elif (self.order_type == OrderType.LIMIT) and (self.price is None):
             raise ValueError("Limit orders must include price")
+
+
+@dataclass
+class Decision:
+    orders: list[Order] = field(default_factory=list)
+    cancel_order_ids: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -66,3 +81,4 @@ class Context:
     current_open_prices: dict[str, Decimal]
     account: Account
     positions: list[Position]
+    open_orders: list[Order] = field(default_factory=list)

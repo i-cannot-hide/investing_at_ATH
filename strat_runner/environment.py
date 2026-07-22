@@ -4,7 +4,14 @@ from decimal import Decimal
 from pathlib import Path
 
 from data.loader import filter_candles_by_date, group_candles_by_time, load_candles_many
-from models import Account, Candle, Context, Order
+from models import (
+    Account,
+    Candle,
+    Context,
+    Decision,
+    Order,
+    OrderType,
+)
 from recorder import Recorder
 from run_registry import (
     allocate_run_dir,
@@ -42,6 +49,7 @@ class Environment:
         ]
         self.account = Account(balances={"USD": Decimal("10000")})
         self.positions = []
+        self.open_orders: list[Order] = []
 
         self.runs_dir = Path(runs_dir) if runs_dir is not None else project_dir / "runs"
         self.run_id, self.date_time, run_folder = allocate_run_dir(self.runs_dir)
@@ -67,29 +75,48 @@ class Environment:
             current_open_prices = {
                 candle.ticker: candle.open for candle in bar_candles
             }
+            current_candles = {candle.ticker: candle for candle in bar_candles}
+
             context = self._build_context(time, history, current_open_prices)
             snapshot_path = self.recorder.save_snapshot(step, context)
-            orders = self.strategy.decide(context)
+            decision = self.strategy.decide(context) or Decision()
 
-            current_candles = {candle.ticker: candle for candle in bar_candles}
+            cancelled_ids = self._cancel_open_orders(decision.cancel_order_ids)
+            markets: list[Order] = []
+            limits: list[Order] = []
+            for order in decision.orders:
+                if order.order_type == OrderType.MARKET:
+                    markets.append(order)
+                elif order.order_type == OrderType.LIMIT:
+                    limits.append(order)
+                else:
+                    raise ValueError(f"Unsupported order type: {order.order_type}")
+
+            self.open_orders.extend(markets)
+
             for candle in bar_candles:
                 history[candle.ticker].append(candle)
                 last_candles[candle.ticker] = candle
 
-            # Market orders fill on this bar at close (strategies only saw open + history).
-            self.mock_executor.execute(
-                orders,
-                self.account,
-                self.positions,
-                current_candles,
-            )
+            filled_ids = self._fill_open_orders(current_candles)
+            
+            self.open_orders.extend(limits)
 
             last_prices = {
                 ticker: candle.close for ticker, candle in last_candles.items()
             }
             equity = self._mark_to_market(last_prices)
             self.recorder.record_step(
-                self._step_record(step, time, last_prices, orders, equity, snapshot_path)
+                self._step_record(
+                    step,
+                    time,
+                    last_prices,
+                    decision,
+                    cancelled_ids,
+                    filled_ids,
+                    equity,
+                    snapshot_path,
+                )
             )
 
         times = list(bars_by_time)
@@ -108,6 +135,47 @@ class Environment:
             },
         )
 
+    def _cancel_open_orders(self, cancel_ids: list[str]) -> list[str]:
+        if not cancel_ids:
+            return []
+        cancel_set = set(cancel_ids)
+        cancelled = [order.id for order in self.open_orders if order.id in cancel_set]
+        self.open_orders = [
+            order for order in self.open_orders if order.id not in cancel_set
+        ]
+        return cancelled
+
+    def _fill_open_orders(self, candles: dict[str, Candle]) -> list[str]:
+        still_open: list[Order] = []
+        filled_ids: list[str] = []
+
+        for order in self.open_orders:
+            candle = candles.get(order.ticker)
+            if candle is None:
+                still_open.append(order)
+                continue
+
+            if order.order_type == OrderType.MARKET:
+                should_fill = True
+            elif order.order_type == OrderType.LIMIT:
+                should_fill = self.mock_executor.limit_is_triggered(order, candle)
+            else:
+                raise ValueError(f"Unsupported order type: {order.order_type}")
+
+            if should_fill:
+                self.mock_executor.execute(
+                    [order],
+                    self.account,
+                    self.positions,
+                    candles,
+                )
+                filled_ids.append(order.id)
+            else:
+                still_open.append(order)
+
+        self.open_orders = still_open
+        return filled_ids
+
     def _build_context(
         self,
         time: datetime,
@@ -120,6 +188,7 @@ class Environment:
             current_open_prices=current_open_prices,
             account=self.account,
             positions=self.positions,
+            open_orders=list(self.open_orders),
         )
 
     def _mark_to_market(self, prices: dict[str, Decimal]) -> Decimal:
@@ -135,7 +204,9 @@ class Environment:
         step: int,
         time: datetime,
         prices: dict[str, Decimal],
-        orders: list[Order],
+        decision: Decision,
+        cancelled_ids: list[str],
+        filled_ids: list[str],
         equity: Decimal,
         snapshot_path: Path | None,
     ) -> dict:
@@ -145,6 +216,7 @@ class Environment:
             "prices": {ticker: str(price) for ticker, price in prices.items()},
             "decision": [
                 {
+                    "id": order.id,
                     "ticker": order.ticker,
                     "side": order.side.value,
                     "quantity": str(order.quantity) if order.quantity is not None else None,
@@ -154,7 +226,25 @@ class Environment:
                     "price": str(order.price) if order.price is not None else None,
                     "order_type": order.order_type.value,
                 }
-                for order in orders
+                for order in decision.orders
+            ],
+            "cancel_order_ids": cancelled_ids,
+            "filled_order_ids": filled_ids,
+            "open_orders": [
+                {
+                    "id": order.id,
+                    "ticker": order.ticker,
+                    "side": order.side.value,
+                    "order_type": order.order_type.value,
+                    "quantity": (
+                        str(order.quantity) if order.quantity is not None else None
+                    ),
+                    "total_value": (
+                        str(order.total_value) if order.total_value is not None else None
+                    ),
+                    "price": str(order.price) if order.price is not None else None,
+                }
+                for order in self.open_orders
             ],
             "balances": {
                 currency: str(amount)
