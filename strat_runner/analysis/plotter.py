@@ -1,43 +1,52 @@
 import pandas as pd
-import matplotlib.pyplot as plt
-from matplotlib.dates import MonthLocator, DateFormatter
-from matplotlib.ticker import FuncFormatter
+import plotly.graph_objects as go
+from plotly.colors import qualitative
 
 
 def plot_series(data, column, *, logy=True, figsize=(10, 5)):
-    """Plot `column` over time.
+    """Plot `column` over time with an interactive Plotly chart.
 
     `data` may be a single DataFrame or a dict of label -> DataFrame
-    to overlay multiple series.
+    to overlay multiple series. Hover a point to see its date and value.
     """
     series = {"_": data} if isinstance(data, pd.DataFrame) else data
+    width = int(figsize[0] * 80)
+    height = int(figsize[1] * 80)
+    colors = qualitative.Plotly
 
-    fig, ax = plt.subplots(figsize=figsize)
-    for label, df in series.items():
+    fig = go.Figure()
+    for index, (label, df) in enumerate(series.items()):
         frame = df.copy()
         frame["time"] = pd.to_datetime(frame["time"])
         frame[column] = frame[column].astype(float)
-        ax.plot(
-            frame["time"],
-            frame[column],
-            label=None if label == "_" else label,
+        name = column if label == "_" else label
+        color = colors[index % len(colors)]
+
+        fig.add_trace(
+            go.Scatter(
+                x=frame["time"],
+                y=frame[column],
+                mode="lines",
+                name=name,
+                line={"color": color},
+                hovertemplate=(
+                    f"<b>{name}</b><br>"
+                    "%{x|%Y-%m-%d}<br>"
+                    f"{column}: %{{y:,.2f}}"
+                    "<extra></extra>"
+                ),
+            )
         )
 
-    if logy:
-        ax.set_yscale("log")
-    ax.set_ylabel(f"{column} (log)" if logy else column)
-
-    def format_number(y, _):
-        if y <= 0:
-            return ""
-        return f"{y:,.0f}"
-
-    ax.yaxis.set_major_formatter(FuncFormatter(format_number))
-    ax.yaxis.set_minor_formatter(FuncFormatter(format_number))
-    ax.xaxis.set_major_locator(MonthLocator(interval=3))
-    ax.xaxis.set_major_formatter(DateFormatter("%Y-%m-%d"))
-    if len(series) > 1:
-        ax.legend()
-    plt.xticks(rotation=45, ha="right")
-    plt.tight_layout()
-    plt.show()
+    fig.update_layout(
+        width=width,
+        height=height,
+        hovermode="x unified",
+        margin={"l": 60, "r": 20, "t": 30, "b": 60},
+        legend={"orientation": "h", "yanchor": "bottom", "y": 1.02, "x": 0},
+        yaxis_title=f"{column} (log)" if logy else column,
+        xaxis_title=None,
+    )
+    fig.update_yaxes(type="log" if logy else "linear", tickformat=",.0f")
+    fig.update_xaxes(tickformat="%Y-%m-%d", tickangle=-45)
+    fig.show()
