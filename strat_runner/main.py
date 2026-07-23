@@ -3,11 +3,12 @@ from pathlib import Path
 from environment import Environment
 from executors.mock_executor import MockExecutor
 from strategies.hold import HoldStrategy
+from strategies.buy_below import BuyBelowStrategy
 
 
 strategies = [
     HoldStrategy(ticker="BTC"),
-    HoldStrategy(ticker="ETH"),
+    BuyBelowStrategy(target_price=20000, ticker="BTC"),
 ]
 
 data_dir = Path(__file__).parent / "data" / "preprocessed"

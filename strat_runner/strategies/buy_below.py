@@ -20,8 +20,13 @@ class BuyBelowStrategy:
         if usd < MIN_USD:
             return None
 
-        price = context.current_open_prices.get(self.ticker)
-        if price is None or price <= 0 or price >= self.target_price:
+        if self.target_price <= 0:
+            return None
+
+        if self.ticker not in context.current_open_prices:
+            return None
+
+        if any(order.ticker == self.ticker for order in context.open_orders):
             return None
 
         return Decision(
@@ -29,8 +34,9 @@ class BuyBelowStrategy:
                 Order(
                     ticker=self.ticker,
                     side=OrderSide.BUY,
-                    order_type=OrderType.MARKET,
-                    total_value=usd,
+                    order_type=OrderType.LIMIT,
+                    quantity=usd / self.target_price,
+                    price=self.target_price,
                 )
             ]
         )
