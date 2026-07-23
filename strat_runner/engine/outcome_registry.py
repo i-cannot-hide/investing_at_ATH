@@ -32,6 +32,15 @@ def allocate_outcome_dir(outcomes_dir: Path, when=None) -> tuple[str, str, Path]
     raise RuntimeError("Could not allocate a unique 2-character outcome id")
 
 
+def allocate_research_id(when=None) -> str:
+    """Return a unique id for one research batch (`{date_time}_{4chars}`)."""
+    from datetime import datetime
+
+    date_time = (when or datetime.now()).strftime("%y-%m-%d_%H-%M")
+    suffix = "".join(random.choices(ID_ALPHABET, k=4))
+    return f"{date_time}_{suffix}"
+
+
 def load_registry(outcomes_dir: Path) -> list[dict]:
     path = Path(outcomes_dir) / REGISTRY_NAME
     if not path.exists():
@@ -71,6 +80,9 @@ def find_entries(
     params: dict | None = None,
     start_date: str | None = None,
     end_date: str | None = None,
+    research: str | None = None,
+    research_id: str | None = None,
+    name: str | None = None,
 ) -> list[dict]:
     """Return registry entries matching any provided filters (all optional)."""
     wanted_assets = _normalize_assets(assets)
@@ -88,6 +100,12 @@ def find_entries(
         if start_date is not None and entry.get("start_date") != start_date:
             continue
         if end_date is not None and entry.get("end_date") != end_date:
+            continue
+        if research is not None and entry.get("research") != research:
+            continue
+        if research_id is not None and entry.get("research_id") != research_id:
+            continue
+        if name is not None and entry.get("name") != name:
             continue
         if params is not None:
             entry_params = {
@@ -110,6 +128,9 @@ def latest_entry(
     params: dict | None = None,
     start_date: str | None = None,
     end_date: str | None = None,
+    research: str | None = None,
+    research_id: str | None = None,
+    name: str | None = None,
 ) -> dict:
     matches = find_entries(
         outcomes_dir,
@@ -120,15 +141,38 @@ def latest_entry(
         params=params,
         start_date=start_date,
         end_date=end_date,
+        research=research,
+        research_id=research_id,
+        name=name,
     )
     if not matches:
         raise FileNotFoundError(
             "No registry entries matched filters: "
             f"strategy={strategy!r}, id={id!r}, folder={folder!r}, "
             f"assets={assets!r}, params={params!r}, "
-            f"start_date={start_date!r}, end_date={end_date!r}"
+            f"start_date={start_date!r}, end_date={end_date!r}, "
+            f"research={research!r}, research_id={research_id!r}, name={name!r}"
         )
     return matches[-1]
+
+
+def latest_research_id(outcomes_dir: Path, research: str) -> str:
+    """Return the research_id of the most recently registered batch for `research`."""
+    matches = find_entries(outcomes_dir, research=research)
+    if not matches:
+        raise FileNotFoundError(f"No registry entries for research={research!r}")
+    research_id = matches[-1].get("research_id")
+    if not research_id:
+        raise FileNotFoundError(
+            f"Latest entry for research={research!r} has no research_id"
+        )
+    return research_id
+
+
+def latest_research_entries(outcomes_dir: Path, research: str) -> list[dict]:
+    """Return all outcome entries from the latest batch of `research`."""
+    research_id = latest_research_id(outcomes_dir, research)
+    return find_entries(outcomes_dir, research=research, research_id=research_id)
 
 
 def steps_path(outcomes_dir: Path, entry: dict) -> Path:

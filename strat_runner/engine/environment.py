@@ -33,6 +33,8 @@ class Environment:
         start_date: str | datetime | None = None,
         end_date: str | datetime | None = None,
         outcomes_dir: Path | str | None = None,
+        research_name: str | None = None,
+        research_id: str | None = None,
     ):
         self.experiment = experiment
         self.strategy = experiment.strategy
@@ -42,6 +44,8 @@ class Environment:
         self.interval = interval
         self.start_date = start_date
         self.end_date = end_date
+        self.research_name = research_name
+        self.research_id = research_id
 
         project_dir = Path(__file__).resolve().parent.parent
         if isinstance(data_files, str):
@@ -134,6 +138,8 @@ class Environment:
                 "id": self.outcome_id,
                 "folder": self.recorder.folder.name,
                 "date_time": self.date_time,
+                "research": self.research_name,
+                "research_id": self.research_id,
                 "name": self.experiment.name,
                 "strategy": type(self.strategy).__name__.removesuffix("Strategy").lower(),
                 "assets": strategy_assets(self.strategy),

@@ -39,7 +39,7 @@ cd strat_runner/analysis
 jupyter lab explore.ipynb
 ```
 
-Use `load_outcome(...)` filters (`strategy`, `assets`, `params`, `start_date`, `end_date`, `id`, `folder`) to load the latest matching outcome, then plot with `plot_series`.
+The notebook loads the latest research batch (`load_research("hold-vs-buybelow")`) and plots every experiment side by side. You can still use `load_outcome(...)` filters (`strategy`, `assets`, `params`, `start_date`, `end_date`, `id`, `folder`, `research`, `name`) for a single outcome.
 
 ## Tests
 
@@ -55,7 +55,7 @@ pytest -q
 strat_runner/
   main.py              # sample simulation entrypoint
   models.py            # Candle, Order, Decision, Context, …
-  engine/              # Environment, Experiment, spawners, registry, recorder
+  engine/              # Environment, Experiment, Research, registry, recorder
   strategies/          # Hold, BuyBelow, …
   executors/           # MockExecutor fill logic
   data/                # loaders, downloaders, preprocessed CSVs
@@ -93,9 +93,29 @@ Experiment(
 
 The registry stores `name`, strategy metadata, and `money_spawner` config. Deposits are logged on each step as `deposit`.
 
+## Research
+
+Group experiments into a named research batch so they share one `research_id` and load together:
+
+```python
+from engine import Experiment, Research
+
+Research(
+    name="hold-vs-buybelow",
+    experiments=[
+        Experiment(strategy=HoldStrategy(ticker="BTC"), name="hold"),
+        Experiment(strategy=BuyBelowStrategy(target_price=20000, ticker="BTC"), name="buybelow"),
+    ],
+).run(data_files)
+```
+
+`latest_research_entries(outcomes_dir, "hold-vs-buybelow")` returns every outcome from the most recent run of that research.
+
 ## Roadmap
 
 - Money Burner
 - Show more charts
 - Show USD and positions separately
 - Events like trades, spawns or burns should be visible on the chart.
+- Implement leverage
+- Implement fees
