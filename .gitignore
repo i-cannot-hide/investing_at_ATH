@@ -14,6 +14,6 @@ strat_runner/data/raw/
 strat_runner/data/preprocessed/*
 !strat_runner/data/preprocessed/.gitkeep
 
-strat_runner/runs/*
-!strat_runner/runs/.gitkeep
+strat_runner/outcomes/*
+!strat_runner/outcomes/.gitkeep
 
