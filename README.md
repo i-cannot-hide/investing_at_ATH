@@ -9,7 +9,7 @@ A Python lab for simulating investment strategies on historical market data, ins
 - Run strategies bar-by-bar against OHLC candles (market and limit orders)
 - Track cash, positions, open orders, and mark-to-market equity
 - Save each outcome under `strat_runner/outcomes/` with a searchable registry
-- Explore equity and prices in an interactive Plotly notebook
+- Explore equity and OHLC (high/low) in an interactive Plotly notebook
 
 ## Bar timing
 
@@ -65,7 +65,7 @@ cd strat_runner
 python main.py
 ```
 
-Outcomes are written to `strat_runner/outcomes/` and indexed in `outcomes/registry.jsonl`.
+Outcomes are written to `strat_runner/outcomes/` and indexed in `outcomes/registry.jsonl`. Each `steps.jsonl` row stores that bar’s OHLC per ticker under `candles` (no volume); equity is still marked at close.
 
 ## Explore results
 

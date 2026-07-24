@@ -88,7 +88,7 @@ def _marker_y(entry: pd.Series, frame: pd.DataFrame, column: str) -> float | Non
     """Y for a journal marker on the plotted series."""
     if (
         entry.get("type") == EntryType.ORDER_FILLED.value
-        and column == "price"
+        and column in {"price", "high", "low", "open", "close", "level"}
         and entry.get("price") is not None
         and pd.notna(entry.get("price"))
     ):

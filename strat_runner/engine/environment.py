@@ -148,7 +148,7 @@ class Environment:
                 self._step_record(
                     step,
                     time,
-                    last_prices,
+                    bar_candles,
                     decision,
                     journal,
                     equity,
@@ -370,7 +370,7 @@ class Environment:
         self,
         step: int,
         time: datetime,
-        prices: dict[str, Decimal],
+        bar_candles: list[Candle],
         decision: Decision,
         journal: list[dict],
         equity: Decimal,
@@ -379,7 +379,15 @@ class Environment:
         record = {
             "step": step,
             "time": str(time),
-            "prices": {ticker: str(price) for ticker, price in prices.items()},
+            "candles": {
+                candle.ticker: {
+                    "open": str(candle.open),
+                    "high": str(candle.high),
+                    "low": str(candle.low),
+                    "close": str(candle.close),
+                }
+                for candle in bar_candles
+            },
             "decision": [
                 {
                     "id": order.id,

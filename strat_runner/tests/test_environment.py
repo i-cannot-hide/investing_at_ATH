@@ -205,6 +205,12 @@ def test_run_writes_steps_and_registry(tmp_path: Path, btc_csv: Path):
     steps = [json.loads(line) for line in steps_file.read_text().splitlines()]
     assert len(steps) == 3
     assert steps[0]["decision"][0]["total_value"] == "10000"
+    assert steps[0]["candles"]["BTC"] == {
+        "open": "100",
+        "high": "120",
+        "low": "90",
+        "close": "110",
+    }
     assert steps[0]["positions"][0]["average_price"] == "110"
     assert steps[0]["journal"] == [
         {
