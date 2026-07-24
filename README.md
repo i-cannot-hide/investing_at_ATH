@@ -15,13 +15,14 @@ A Python lab for simulating investment strategies on historical market data, ins
 
 Each bar is processed in this order:
 
-1. Optional cash deposit (`MoneySpawner`)
+1. Experiment modifiers `on_bar_start` (e.g. `MoneySpawner`, period-roll `Staker` interest)
 2. Strategy `decide` — sees **current open** prices and **past bars only** (no current OHLC in history)
 3. Cancels apply; new **market** orders are accepted
 4. Current bar is appended to history
 5. Open orders fill against the current bar (markets at **close**; limits when touched, at limit or gap-through **open**)
 6. New **limit** orders rest — they are **not** eligible to fill until a later bar
-7. Equity is marked to market at close
+7. Experiment modifiers `on_bar_end` (e.g. `Staker` observes min; final interest on last bar)
+8. Equity is marked to market at close
 
 So: decide at the open, market fills at the same bar’s close, freshly placed limits wait until the next bar.
 
@@ -46,14 +47,20 @@ Resting limits lock funds on the order when accepted:
 
 Equity = free USD + frozen USD + free position value + reserved coin value.
 
-## Staking interest
+## Experiment modifiers
 
-Attach one or more `Staker`s on an `Experiment` (one ticker each). Each period (`SpawnInterval` day/week/month) the staker tracks the **minimum available** balance of that ticker (free USD in `account.balances`, or free position quantity for coins — not frozen/reserved). When the period ends (or on the last bar of the run), it credits `principal * rate` as interest and records an `interest` journal entry.
+Account-side hooks on an `Experiment` via `modifiers=[...]`. Each modifier may implement:
+
+- `on_bar_start(ctx)` — before strategy decide
+- `on_bar_end(ctx)` — after fills / resting limits
+
+`MoneySpawner` deposits on period boundaries in `on_bar_start`. `Staker` (one ticker each) tracks the period’s **minimum available** balance (free cash or free position qty), pays on period roll in `on_bar_start`, observes in `on_bar_end`, and settles the open period on the last bar.
 
 ```python
 Experiment(
     strategy=DoNothingStrategy(),
-    stakers=[
+    modifiers=[
+        MoneySpawner(currency="USD", amount=1000, interval=SpawnInterval.MONTH),
         Staker(ticker="USD", rate="0.004", interval=SpawnInterval.MONTH),
         Staker(ticker="BTC", rate="0.002", interval=SpawnInterval.MONTH),
     ],
@@ -133,16 +140,18 @@ from engine import Experiment, MoneySpawner, SpawnInterval
 
 Experiment(
     strategy=BuyBelowStrategy(target_price=20000, ticker="BTC"),
-    money_spawner=MoneySpawner(
-        currency="USD",
-        amount=1000,
-        interval=SpawnInterval.MONTH,
-    ),
+    modifiers=[
+        MoneySpawner(
+            currency="USD",
+            amount=1000,
+            interval=SpawnInterval.MONTH,
+        ),
+    ],
     name="buybelow+spawn",
 )
 ```
 
-The registry stores `name`, strategy metadata, and `money_spawner` config. Applied changes are logged on each step as a `journal` of typed `entries` (deposits, fills, cancellations, …).
+The registry stores `name`, strategy metadata, and `modifiers` config. Applied changes are logged on each step as a `journal` of typed `entries` (deposits, interest, fills, cancellations, …).
 
 ## Research
 

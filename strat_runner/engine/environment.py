@@ -16,11 +16,10 @@ from models import (
 )
 from engine.experiment import Experiment
 from engine.journal import (
-    deposit_entry,
-    interest_entry,
     order_cancelled_entry,
     order_filled_entry,
 )
+from engine.modifier import ModifierContext
 from engine.recorder import Recorder
 from engine.outcome_registry import (
     allocate_outcome_dir,
@@ -48,8 +47,7 @@ class Environment:
     ):
         self.experiment = experiment
         self.strategy = experiment.strategy
-        self.money_spawner = experiment.money_spawner
-        self.stakers = list(experiment.stakers)
+        self.modifiers = list(experiment.modifiers)
         self.mock_executor = mock_executor
         self.full_debug_outcomes = full_debug_outcomes
         self.interval = interval
@@ -96,32 +94,19 @@ class Environment:
                 candle.ticker: candle.open for candle in bar_candles
             }
             current_candles = {candle.ticker: candle for candle in bar_candles}
+            is_last_bar = step == len(bars) - 1
             journal: list[dict] = []
 
-            for staker in self.stakers:
-                payment = staker.settle_if_period_changed(
-                    time, self.account, self.positions
-                )
-                if payment is not None:
-                    interest, principal = payment
-                    journal.append(
-                        interest_entry(
-                            ticker=staker.ticker,
-                            amount=interest,
-                            principal=principal,
-                            rate=staker.rate,
-                        )
-                    )
-
-            if self.money_spawner is not None:
-                deposit = self.money_spawner.spawn(time, self.account)
-                if deposit is not None:
-                    journal.append(
-                        deposit_entry(
-                            currency=self.money_spawner.currency,
-                            amount=deposit,
-                        )
-                    )
+            modifier_ctx = ModifierContext(
+                time=time,
+                account=self.account,
+                positions=self.positions,
+                open_orders=self.open_orders,
+                bar_candles=current_candles,
+                is_last_bar=is_last_bar,
+            )
+            for modifier in self.modifiers:
+                journal.extend(modifier.on_bar_start(modifier_ctx))
 
             context = self._build_context(time, history, current_open_prices)
             snapshot_path = self.recorder.save_snapshot(step, context)
@@ -158,22 +143,8 @@ class Environment:
 
             self.open_orders.extend(self._accept_limit_orders(limits))
 
-            for staker in self.stakers:
-                staker.observe(self.account, self.positions)
-
-            if step == len(bars) - 1:
-                for staker in self.stakers:
-                    payment = staker.settle_final(self.account, self.positions)
-                    if payment is not None:
-                        interest, principal = payment
-                        journal.append(
-                            interest_entry(
-                                ticker=staker.ticker,
-                                amount=interest,
-                                principal=principal,
-                                rate=staker.rate,
-                            )
-                        )
+            for modifier in self.modifiers:
+                journal.extend(modifier.on_bar_end(modifier_ctx))
 
             last_prices = {
                 ticker: candle.close for ticker, candle in last_candles.items()
@@ -204,22 +175,8 @@ class Environment:
                 "strategy": type(self.strategy).__name__.removesuffix("Strategy").lower(),
                 "assets": strategy_assets(self.strategy),
                 "params": strategy_params(self.strategy),
-                "money_spawner": (
-                    None
-                    if self.money_spawner is None
-                    else {
-                        "currency": self.money_spawner.currency,
-                        "amount": str(self.money_spawner.amount),
-                        "interval": self.money_spawner.interval.value,
-                    }
-                ),
-                "stakers": [
-                    {
-                        "ticker": staker.ticker,
-                        "rate": str(staker.rate),
-                        "interval": staker.interval.value,
-                    }
-                    for staker in self.stakers
+                "modifiers": [
+                    modifier.registry_record() for modifier in self.modifiers
                 ]
                 or None,
                 "start_date": times[0].strftime("%Y-%m-%d"),

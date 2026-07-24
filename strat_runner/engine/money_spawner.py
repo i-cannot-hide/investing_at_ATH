@@ -3,6 +3,8 @@ from datetime import datetime
 from decimal import Decimal
 from enum import Enum
 
+from engine.journal import deposit_entry
+from engine.modifier import ExperimentModifier, ModifierContext
 from models import Account
 
 
@@ -13,7 +15,7 @@ class SpawnInterval(Enum):
 
 
 @dataclass
-class MoneySpawner:
+class MoneySpawner(ExperimentModifier):
     currency: str
     amount: Decimal | float | str | int
     interval: SpawnInterval
@@ -48,3 +50,17 @@ class MoneySpawner:
             account.balances.get(self.currency, Decimal("0")) + self.amount
         )
         return self.amount
+
+    def on_bar_start(self, ctx: ModifierContext) -> list[dict]:
+        deposit = self.spawn(ctx.time, ctx.account)
+        if deposit is None:
+            return []
+        return [deposit_entry(currency=self.currency, amount=deposit)]
+
+    def registry_record(self) -> dict:
+        return {
+            "type": "MoneySpawner",
+            "currency": self.currency,
+            "amount": str(self.amount),
+            "interval": self.interval.value,
+        }

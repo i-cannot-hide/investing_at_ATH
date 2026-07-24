@@ -17,24 +17,25 @@ research = Research(
         Experiment(
             strategy=DoNothingStrategy(),
             name="do-nothing_with_salary",
-            money_spawner=MoneySpawner(
-                currency="USD",
-                amount=1000,
-                interval=SpawnInterval.MONTH,
-            ),
+            modifiers=[
+                MoneySpawner(
+                    currency="USD",
+                    amount=1000,
+                    interval=SpawnInterval.MONTH,
+                ),
+            ],
         ),
         Experiment(
             strategy=DoNothingStrategy(),
             name="do-nothing_with_stake",
-            stakers=[
+            modifiers=[
                 Staker(ticker="USD", rate="0.004", interval=SpawnInterval.MONTH),
             ],
         ),
-
         Experiment(
             strategy=DoNothingStrategy(),
             name="do-nothing_with_BTC_stake",
-            stakers=[
+            modifiers=[
                 Staker(ticker="BTC", rate="0.004", interval=SpawnInterval.MONTH),
             ],
         ),
@@ -46,15 +47,16 @@ research = Research(
             strategy=InvestEverythingStrategy(ticker="BTC"),
             name="invest_everything",
         ),
-
         Experiment(
             strategy=InvestEverythingStrategy(ticker="BTC"),
             name="invest_everything+spawn",
-            money_spawner=MoneySpawner(
-                currency="USD",
-                amount=1000,
-                interval=SpawnInterval.MONTH,
-            ),
+            modifiers=[
+                MoneySpawner(
+                    currency="USD",
+                    amount=1000,
+                    interval=SpawnInterval.MONTH,
+                ),
+            ],
         ),
         Experiment(
             strategy=BuyBelowStrategy(target_price=20000, ticker="BTC"),
@@ -62,12 +64,14 @@ research = Research(
         ),
         Experiment(
             strategy=BuyBelowStrategy(target_price=20000, ticker="BTC"),
-            money_spawner=MoneySpawner(
-                currency="USD",
-                amount=1000,
-                interval=SpawnInterval.MONTH,
-            ),
             name="buybelow+spawn",
+            modifiers=[
+                MoneySpawner(
+                    currency="USD",
+                    amount=1000,
+                    interval=SpawnInterval.MONTH,
+                ),
+            ],
         ),
     ],
 )

@@ -2,17 +2,22 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from decimal import Decimal
 
+from engine.journal import interest_entry
+from engine.modifier import ExperimentModifier, ModifierContext
 from engine.money_spawner import SpawnInterval
 from models import Account, Position
 
 
 @dataclass
-class Staker:
+class Staker(ExperimentModifier):
     """Pay interest on the period's minimum available balance of one ticker.
 
     Available means free cash (`account.balances[ticker]`) or free position
     quantity (not reserved on resting sell limits). ``rate`` is applied once
     per ``interval`` period on that period's running minimum.
+
+    ``on_bar_start`` pays when a period rolls; ``on_bar_end`` tracks the min
+    and pays the open period on the last bar.
     """
 
     ticker: str
@@ -94,6 +99,39 @@ class Staker:
         self._period_min = None
         return payment
 
+    def on_bar_start(self, ctx: ModifierContext) -> list[dict]:
+        payment = self.settle_if_period_changed(
+            ctx.time, ctx.account, ctx.positions
+        )
+        if payment is None:
+            return []
+        interest, principal = payment
+        return [
+            interest_entry(
+                ticker=self.ticker,
+                amount=interest,
+                principal=principal,
+                rate=self.rate,
+            )
+        ]
+
+    def on_bar_end(self, ctx: ModifierContext) -> list[dict]:
+        self.observe(ctx.account, ctx.positions)
+        if not ctx.is_last_bar:
+            return []
+        payment = self.settle_final(ctx.account, ctx.positions)
+        if payment is None:
+            return []
+        interest, principal = payment
+        return [
+            interest_entry(
+                ticker=self.ticker,
+                amount=interest,
+                principal=principal,
+                rate=self.rate,
+            )
+        ]
+
     def _credit_interest(
         self,
         account: Account,
@@ -135,3 +173,11 @@ class Staker:
                 average_price=Decimal("0"),
             )
         )
+
+    def registry_record(self) -> dict:
+        return {
+            "type": "Staker",
+            "ticker": self.ticker,
+            "rate": str(self.rate),
+            "interval": self.interval.value,
+        }

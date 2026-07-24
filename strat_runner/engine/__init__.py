@@ -1,6 +1,7 @@
 from engine.environment import Environment
 from engine.experiment import Experiment
 from engine.journal import EntryType
+from engine.modifier import ExperimentModifier, ModifierContext
 from engine.money_spawner import MoneySpawner, SpawnInterval
 from engine.outcome_registry import (
     find_entries,
@@ -19,6 +20,8 @@ __all__ = [
     "EntryType",
     "Environment",
     "Experiment",
+    "ExperimentModifier",
+    "ModifierContext",
     "MoneySpawner",
     "SpawnInterval",
     "Staker",

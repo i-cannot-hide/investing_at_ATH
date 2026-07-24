@@ -388,11 +388,13 @@ def test_money_spawner_credits_before_decide(tmp_path: Path):
     environment = Environment(
         Experiment(
             recorder,
-            money_spawner=MoneySpawner(
-                currency="USD",
-                amount=1000,
-                interval=SpawnInterval.MONTH,
-            ),
+            modifiers=[
+                MoneySpawner(
+                    currency="USD",
+                    amount=1000,
+                    interval=SpawnInterval.MONTH,
+                ),
+            ],
         ),
         MockExecutor(),
         [str(csv_path)],
@@ -451,7 +453,7 @@ def test_staker_pays_interest_on_period_minimum(tmp_path: Path):
     environment = Environment(
         Experiment(
             SpendOnce(),
-            stakers=[
+            modifiers=[
                 Staker(ticker="USD", rate="0.10", interval=SpawnInterval.MONTH),
             ],
         ),
@@ -478,8 +480,8 @@ def test_staker_pays_interest_on_period_minimum(tmp_path: Path):
     feb_interest = [e for e in steps[2]["journal"] if e["type"] == "interest"][1]
     assert Decimal(feb_interest["principal"]) == Decimal("4400")
     assert Decimal(feb_interest["amount"]) == Decimal("440")
-    assert entries[0]["stakers"] == [
-        {"ticker": "USD", "rate": "0.10", "interval": "1M"}
+    assert entries[0]["modifiers"] == [
+        {"type": "Staker", "ticker": "USD", "rate": "0.10", "interval": "1M"}
     ]
 
 
