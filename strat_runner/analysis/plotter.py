@@ -233,10 +233,10 @@ def plot_series(
         entries_legend = {
             "orientation": "h",
             "yanchor": "top",
-            "y": -0.40,
+            "y": -0.52,
             "x": 0,
         }
-        layout["margin"] = {"l": 60, "r": 20, "t": 30, "b": 120}
+        layout["margin"] = {"l": 60, "r": 20, "t": 30, "b": 140}
         layout[ENTRIES_LEGEND] = entries_legend
     fig.update_layout(**layout)
     fig.update_yaxes(type="log" if logy else "linear", tickformat=",.0f")

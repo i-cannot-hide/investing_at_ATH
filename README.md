@@ -70,6 +70,7 @@ Strategies implement `decide(context) -> Decision | None`:
 
 - **`DoNothingStrategy`** — keep USD idle; never places orders
 - **`HoldStrategy`** — market-buy available USD when the ticker is present
+- **`InvestEverythingStrategy`** — same as hold: market-buy all available USD
 - **`BuyBelowStrategy`** — rest a limit buy at a target price
 
 `Context` exposes history (past bars only), current open prices, account, positions, and open orders. Return `Decision(orders=..., cancel_order_ids=...)` or `None` for a no-op.

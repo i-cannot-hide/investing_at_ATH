@@ -3,6 +3,7 @@ from pathlib import Path
 from engine import Experiment, MoneySpawner, Research, SpawnInterval
 from strategies.do_nothing import DoNothingStrategy
 from strategies.hold import HoldStrategy
+from strategies.invest_everything import InvestEverythingStrategy
 from strategies.buy_below import BuyBelowStrategy
 
 
@@ -25,6 +26,10 @@ research = Research(
         Experiment(
             strategy=HoldStrategy(ticker="BTC"),
             name="hold",
+        ),
+        Experiment(
+            strategy=InvestEverythingStrategy(ticker="BTC"),
+            name="invest_everything",
         ),
         Experiment(
             strategy=BuyBelowStrategy(target_price=20000, ticker="BTC"),
