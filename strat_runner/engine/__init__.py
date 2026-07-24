@@ -13,6 +13,7 @@ from engine.outcome_registry import (
 )
 from engine.recorder import Recorder
 from engine.research import Research
+from engine.staker import Staker
 
 __all__ = [
     "EntryType",
@@ -20,6 +21,7 @@ __all__ = [
     "Experiment",
     "MoneySpawner",
     "SpawnInterval",
+    "Staker",
     "Recorder",
     "Research",
     "find_entries",

@@ -46,6 +46,20 @@ Resting limits lock funds on the order when accepted:
 
 Equity = free USD + frozen USD + free position value + reserved coin value.
 
+## Staking interest
+
+Attach one or more `Staker`s on an `Experiment` (one ticker each). Each period (`SpawnInterval` day/week/month) the staker tracks the **minimum available** balance of that ticker (free USD in `account.balances`, or free position quantity for coins — not frozen/reserved). When the period ends (or on the last bar of the run), it credits `principal * rate` as interest and records an `interest` journal entry.
+
+```python
+Experiment(
+    strategy=DoNothingStrategy(),
+    stakers=[
+        Staker(ticker="USD", rate="0.004", interval=SpawnInterval.MONTH),
+        Staker(ticker="BTC", rate="0.002", interval=SpawnInterval.MONTH),
+    ],
+)
+```
+
 ## Setup
 
 Requires **Python 3.14+**.

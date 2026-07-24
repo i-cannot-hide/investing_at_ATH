@@ -51,6 +51,15 @@ _MARKER_STYLE = {
         "line_width": 2,
         "hover": "DEPOSIT",
     },
+    EntryType.INTEREST.value: {
+        "name": "interest",
+        "symbol": "line-nw",
+        "color": "#2e7d32",
+        "size": 6,
+        "line_color": "#2e7d32",
+        "line_width": 2,
+        "hover": "INTEREST",
+    },
     EntryType.WITHDRAWAL.value: {
         "name": "withdrawal",
         "symbol": "line-ne",
@@ -174,6 +183,14 @@ def _add_journal_traces(
             deposits,
             _MARKER_STYLE[EntryType.DEPOSIT.value],
             extra_hover="amount" if "amount" in deposits.columns else None,
+        )
+
+    if EntryType.INTEREST.value in entry_types:
+        interest = journal[journal["type"] == EntryType.INTEREST.value]
+        add_markers(
+            interest,
+            _MARKER_STYLE[EntryType.INTEREST.value],
+            extra_hover="amount" if "amount" in interest.columns else None,
         )
 
     if EntryType.WITHDRAWAL.value in entry_types:

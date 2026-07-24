@@ -1,6 +1,7 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from engine.money_spawner import MoneySpawner
+from engine.staker import Staker
 
 
 @dataclass
@@ -9,4 +10,5 @@ class Experiment:
 
     strategy: object
     money_spawner: MoneySpawner | None = None
+    stakers: list[Staker] = field(default_factory=list)
     name: str | None = None

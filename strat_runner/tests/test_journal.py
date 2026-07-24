@@ -3,6 +3,7 @@ from decimal import Decimal
 from engine.journal import (
     EntryType,
     deposit_entry,
+    interest_entry,
     order_cancelled_entry,
     order_filled_entry,
     withdrawal_entry,
@@ -20,6 +21,21 @@ def test_deposit_and_withdrawal_entries():
         "type": EntryType.WITHDRAWAL.value,
         "currency": "USD",
         "amount": "250",
+    }
+
+
+def test_interest_entry():
+    assert interest_entry(
+        ticker="USD",
+        amount=Decimal("40"),
+        principal=Decimal("400"),
+        rate=Decimal("0.1"),
+    ) == {
+        "type": EntryType.INTEREST.value,
+        "ticker": "USD",
+        "amount": "40",
+        "principal": "400",
+        "rate": "0.1",
     }
 
 

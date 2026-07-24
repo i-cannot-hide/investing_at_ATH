@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from engine import Experiment, MoneySpawner, Research, SpawnInterval
+from engine import Experiment, MoneySpawner, Research, SpawnInterval, Staker
 from strategies.do_nothing import DoNothingStrategy
 from strategies.hold import HoldStrategy
 from strategies.invest_everything import InvestEverythingStrategy
@@ -22,6 +22,21 @@ research = Research(
                 amount=1000,
                 interval=SpawnInterval.MONTH,
             ),
+        ),
+        Experiment(
+            strategy=DoNothingStrategy(),
+            name="do-nothing_with_stake",
+            stakers=[
+                Staker(ticker="USD", rate="0.004", interval=SpawnInterval.MONTH),
+            ],
+        ),
+
+        Experiment(
+            strategy=DoNothingStrategy(),
+            name="do-nothing_with_BTC_stake",
+            stakers=[
+                Staker(ticker="BTC", rate="0.004", interval=SpawnInterval.MONTH),
+            ],
         ),
         Experiment(
             strategy=HoldStrategy(ticker="BTC"),

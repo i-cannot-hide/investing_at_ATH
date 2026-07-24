@@ -9,6 +9,7 @@ from models import Order
 class EntryType(Enum):
     DEPOSIT = "deposit"
     WITHDRAWAL = "withdrawal"
+    INTEREST = "interest"
     ORDER_FILLED = "order_filled"
     ORDER_CANCELLED = "order_cancelled"
 
@@ -18,6 +19,22 @@ def deposit_entry(*, currency: str, amount: Decimal) -> dict:
         "type": EntryType.DEPOSIT.value,
         "currency": currency,
         "amount": str(amount),
+    }
+
+
+def interest_entry(
+    *,
+    ticker: str,
+    amount: Decimal,
+    principal: Decimal,
+    rate: Decimal,
+) -> dict:
+    return {
+        "type": EntryType.INTEREST.value,
+        "ticker": ticker,
+        "amount": str(amount),
+        "principal": str(principal),
+        "rate": str(rate),
     }
 
 

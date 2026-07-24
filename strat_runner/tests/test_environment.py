@@ -9,6 +9,7 @@ from engine import (
     Experiment,
     MoneySpawner,
     SpawnInterval,
+    Staker,
     load_registry,
 )
 from executors.mock_executor import MockExecutor
@@ -413,6 +414,72 @@ def test_money_spawner_credits_before_decide(tmp_path: Path):
     assert steps[1]["journal"] == []
     assert steps[2]["journal"] == [
         {"type": "deposit", "currency": "USD", "amount": "1000"}
+    ]
+
+
+def test_staker_pays_interest_on_period_minimum(tmp_path: Path):
+    csv_path = tmp_path / "btc.csv"
+    write_btc_csv(
+        csv_path,
+        [
+            ("2023-01-01", "100", "110", "90", "105"),
+            ("2023-01-15", "105", "110", "100", "108"),
+            ("2023-02-01", "108", "120", "105", "115"),
+        ],
+    )
+    # Spend half on day 1 via hold-like market buy of $5000 worth... use NoOp and
+    # mutate via a strategy that spends once.
+    class SpendOnce:
+        def __init__(self):
+            self.spent = False
+
+        def decide(self, context: Context) -> Decision | None:
+            if self.spent:
+                return None
+            self.spent = True
+            return Decision(
+                orders=[
+                    Order(
+                        ticker="BTC",
+                        side=OrderSide.BUY,
+                        order_type=OrderType.MARKET,
+                        total_value=Decimal("6000"),
+                    )
+                ]
+            )
+
+    environment = Environment(
+        Experiment(
+            SpendOnce(),
+            stakers=[
+                Staker(ticker="USD", rate="0.10", interval=SpawnInterval.MONTH),
+            ],
+        ),
+        MockExecutor(),
+        [str(csv_path)],
+        outcomes_dir=tmp_path / "outcomes",
+        initial_usd=10_000,
+    )
+    environment.run()
+
+    entries = load_registry(tmp_path / "outcomes")
+    steps_file = tmp_path / "outcomes" / entries[0]["folder"] / "steps.jsonl"
+    steps = [json.loads(line) for line in steps_file.read_text().splitlines()]
+
+    # Jan: start 10000, after buy free USD=4000 → min=4000. Feb 1 pays 10%.
+    jan_interest = steps[2]["journal"][0]
+    assert jan_interest["type"] == "interest"
+    assert jan_interest["ticker"] == "USD"
+    assert Decimal(jan_interest["principal"]) == Decimal("4000")
+    assert Decimal(jan_interest["amount"]) == Decimal("400")
+    assert Decimal(jan_interest["rate"]) == Decimal("0.10")
+
+    # Last bar also settles Feb (one day after Jan interest credited).
+    feb_interest = [e for e in steps[2]["journal"] if e["type"] == "interest"][1]
+    assert Decimal(feb_interest["principal"]) == Decimal("4400")
+    assert Decimal(feb_interest["amount"]) == Decimal("440")
+    assert entries[0]["stakers"] == [
+        {"ticker": "USD", "rate": "0.10", "interval": "1M"}
     ]
 
 

@@ -17,6 +17,7 @@ from models import (
 from engine.experiment import Experiment
 from engine.journal import (
     deposit_entry,
+    interest_entry,
     order_cancelled_entry,
     order_filled_entry,
 )
@@ -48,6 +49,7 @@ class Environment:
         self.experiment = experiment
         self.strategy = experiment.strategy
         self.money_spawner = experiment.money_spawner
+        self.stakers = list(experiment.stakers)
         self.mock_executor = mock_executor
         self.full_debug_outcomes = full_debug_outcomes
         self.interval = interval
@@ -87,13 +89,29 @@ class Environment:
         bars_by_time = group_candles_by_time(candles)
         history: dict[str, list[Candle]] = defaultdict(list)
         last_candles: dict[str, Candle] = {}
+        bars = list(bars_by_time.items())
 
-        for step, (time, bar_candles) in enumerate(bars_by_time.items()):
+        for step, (time, bar_candles) in enumerate(bars):
             current_open_prices = {
                 candle.ticker: candle.open for candle in bar_candles
             }
             current_candles = {candle.ticker: candle for candle in bar_candles}
             journal: list[dict] = []
+
+            for staker in self.stakers:
+                payment = staker.settle_if_period_changed(
+                    time, self.account, self.positions
+                )
+                if payment is not None:
+                    interest, principal = payment
+                    journal.append(
+                        interest_entry(
+                            ticker=staker.ticker,
+                            amount=interest,
+                            principal=principal,
+                            rate=staker.rate,
+                        )
+                    )
 
             if self.money_spawner is not None:
                 deposit = self.money_spawner.spawn(time, self.account)
@@ -140,6 +158,23 @@ class Environment:
 
             self.open_orders.extend(self._accept_limit_orders(limits))
 
+            for staker in self.stakers:
+                staker.observe(self.account, self.positions)
+
+            if step == len(bars) - 1:
+                for staker in self.stakers:
+                    payment = staker.settle_final(self.account, self.positions)
+                    if payment is not None:
+                        interest, principal = payment
+                        journal.append(
+                            interest_entry(
+                                ticker=staker.ticker,
+                                amount=interest,
+                                principal=principal,
+                                rate=staker.rate,
+                            )
+                        )
+
             last_prices = {
                 ticker: candle.close for ticker, candle in last_candles.items()
             }
@@ -156,7 +191,7 @@ class Environment:
                 )
             )
 
-        times = list(bars_by_time)
+        times = [time for time, _ in bars]
         register_outcome(
             self.outcomes_dir,
             {
@@ -178,6 +213,15 @@ class Environment:
                         "interval": self.money_spawner.interval.value,
                     }
                 ),
+                "stakers": [
+                    {
+                        "ticker": staker.ticker,
+                        "rate": str(staker.rate),
+                        "interval": staker.interval.value,
+                    }
+                    for staker in self.stakers
+                ]
+                or None,
                 "start_date": times[0].strftime("%Y-%m-%d"),
                 "end_date": times[-1].strftime("%Y-%m-%d"),
                 "interval": self.interval,
