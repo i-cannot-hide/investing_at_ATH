@@ -258,8 +258,12 @@ def test_limit_order_rests_then_fills_when_touched(tmp_path: Path):
     assert len(recorder.contexts[1].open_orders) == 1
     assert recorder.contexts[1].open_orders[0].id is not None
     assert recorder.contexts[1].open_orders[0].price == Decimal("90")
+    assert recorder.contexts[1].open_orders[0].reserved_cash == Decimal("90")
+    # Free cash excludes the reservation while the limit rests.
+    assert recorder.contexts[1].account.balances["USD"] == Decimal("9910")
 
     assert environment.open_orders == []
+    assert environment.frozen_usd == Decimal("0")
     assert len(environment.positions) == 1
     assert environment.positions[0].quantity == Decimal("1")
     assert environment.positions[0].average_price == Decimal("90")
@@ -268,6 +272,10 @@ def test_limit_order_rests_then_fills_when_touched(tmp_path: Path):
     entries = load_registry(tmp_path / "outcomes")
     steps_file = tmp_path / "outcomes" / entries[0]["folder"] / "steps.jsonl"
     steps = [json.loads(line) for line in steps_file.read_text().splitlines()]
+    assert steps[0]["balances"]["USD"] == "9910"
+    assert steps[0]["frozen_usd"] == "90"
+    assert steps[0]["equity"] == "10000"
+    assert steps[0]["open_orders"][0]["reserved_cash"] == "90"
     assert steps[0]["journal"] == []
     assert steps[1]["journal"] == [
         {
@@ -280,6 +288,7 @@ def test_limit_order_rests_then_fills_when_touched(tmp_path: Path):
             "price": "90",
         }
     ]
+    assert steps[1]["frozen_usd"] == "0"
 
 
 def test_strategy_can_cancel_open_orders(tmp_path: Path):
@@ -427,3 +436,269 @@ def test_context_mutations_do_not_affect_environment(tmp_path: Path, btc_csv: Pa
     assert environment.open_orders == []
     # History still advanced for every bar despite strategy clearing its copy.
     assert len(environment.recorder.folder.joinpath("steps.jsonl").read_text().splitlines()) == 3
+
+
+def test_limit_buy_reserves_cash_and_cancel_releases_it(tmp_path: Path):
+    csv_path = tmp_path / "btc.csv"
+    write_btc_csv(
+        csv_path,
+        [
+            ("2021-01-01", "100", "110", "95", "105"),
+            ("2021-01-02", "105", "110", "95", "100"),
+        ],
+    )
+    environment = Environment(
+        Experiment(LimitThenCancelStrategy()),
+        MockExecutor(),
+        [str(csv_path)],
+        outcomes_dir=tmp_path / "outcomes",
+    )
+    environment.run()
+
+    entries = load_registry(tmp_path / "outcomes")
+    steps = [
+        json.loads(line)
+        for line in (tmp_path / "outcomes" / entries[0]["folder"] / "steps.jsonl")
+        .read_text()
+        .splitlines()
+    ]
+    # Day 1: qty 1 @ 50 reserved.
+    assert steps[0]["balances"]["USD"] == "9950"
+    assert steps[0]["frozen_usd"] == "50"
+    assert steps[0]["equity"] == "10000"
+    assert steps[0]["open_orders"][0]["reserved_cash"] == "50"
+    # Day 2: cancel restores free cash.
+    assert steps[1]["balances"]["USD"] == "10000"
+    assert steps[1]["frozen_usd"] == "0"
+    assert steps[1]["equity"] == "10000"
+    assert environment.account.balances["USD"] == Decimal("10000")
+    assert environment.frozen_usd == Decimal("0")
+
+
+def test_limit_buy_gap_fill_returns_unused_reservation(tmp_path: Path):
+    csv_path = tmp_path / "btc.csv"
+    # Day 1 rests. Day 2 opens at 80 (through limit 90) → fill at 80.
+    write_btc_csv(
+        csv_path,
+        [
+            ("2021-01-01", "100", "110", "95", "105"),
+            ("2021-01-02", "80", "90", "75", "85"),
+        ],
+    )
+    environment = Environment(
+        Experiment(LimitBuyStrategy(price="90")),
+        MockExecutor(),
+        [str(csv_path)],
+        outcomes_dir=tmp_path / "outcomes",
+    )
+    environment.run()
+
+    assert environment.positions[0].average_price == Decimal("80")
+    # Reserved 90, filled at 80 → 10 returned to free → 9920.
+    assert environment.account.balances["USD"] == Decimal("9920")
+    assert environment.frozen_usd == Decimal("0")
+
+
+def test_limit_buy_rejects_when_insufficient_free_cash(tmp_path: Path):
+    csv_path = tmp_path / "btc.csv"
+    write_btc_csv(
+        csv_path,
+        [("2021-01-01", "100", "110", "95", "105")],
+    )
+
+    class ExpensiveLimitStrategy:
+        def decide(self, context: Context) -> Decision:
+            return Decision(
+                orders=[
+                    Order(
+                        ticker="BTC",
+                        side=OrderSide.BUY,
+                        order_type=OrderType.LIMIT,
+                        quantity=Decimal("1000"),
+                        price=Decimal("100"),
+                    )
+                ]
+            )
+
+    environment = Environment(
+        Experiment(ExpensiveLimitStrategy()),
+        MockExecutor(),
+        [str(csv_path)],
+        outcomes_dir=tmp_path / "outcomes",
+        initial_usd=1000,
+    )
+    with pytest.raises(ValueError, match="Not enough free USD to reserve"):
+        environment.run()
+
+
+class SeedPositionThenLimitSellStrategy:
+    """Day 1: market-buy 1 BTC. Day 2: rest a limit sell for that 1 BTC."""
+
+    def __init__(self):
+        self._bought = False
+
+    def decide(self, context: Context) -> Decision | None:
+        if not self._bought:
+            self._bought = True
+            return Decision(
+                orders=[
+                    Order(
+                        ticker="BTC",
+                        side=OrderSide.BUY,
+                        order_type=OrderType.MARKET,
+                        quantity=Decimal("1"),
+                    )
+                ]
+            )
+        if any(order.side == OrderSide.SELL for order in context.open_orders):
+            return None
+        if not context.positions:
+            return None
+        return Decision(
+            orders=[
+                Order(
+                    ticker="BTC",
+                    side=OrderSide.SELL,
+                    order_type=OrderType.LIMIT,
+                    quantity=Decimal("1"),
+                    price=Decimal("200"),
+                )
+            ]
+        )
+
+
+class LimitSellThenCancelStrategy(SeedPositionThenLimitSellStrategy):
+    def decide(self, context: Context) -> Decision | None:
+        if any(order.side == OrderSide.SELL for order in context.open_orders):
+            return Decision(
+                cancel_order_ids=[
+                    order.id for order in context.open_orders if order.side == OrderSide.SELL
+                ]
+            )
+        return super().decide(context)
+
+
+def test_limit_sell_reserves_coins(tmp_path: Path):
+    csv_path = tmp_path / "btc.csv"
+    # Day 1 buy at close 110. Day 2 high stays below 200 so sell rests.
+    write_btc_csv(
+        csv_path,
+        [
+            ("2021-01-01", "100", "120", "90", "110"),
+            ("2021-01-02", "110", "150", "100", "140"),
+        ],
+    )
+    recorder = RecordingStrategy(SeedPositionThenLimitSellStrategy())
+    environment = Environment(
+        Experiment(recorder),
+        MockExecutor(),
+        [str(csv_path)],
+        outcomes_dir=tmp_path / "outcomes",
+    )
+    environment.run()
+
+    # Day-2 decide still sees the free position; sell is accepted after decide.
+    assert len(recorder.contexts[1].positions) == 1
+    assert recorder.contexts[1].positions[0].quantity == Decimal("1")
+
+    entries = load_registry(tmp_path / "outcomes")
+    steps = [
+        json.loads(line)
+        for line in (tmp_path / "outcomes" / entries[0]["folder"] / "steps.jsonl")
+        .read_text()
+        .splitlines()
+    ]
+    # End of day 2: sell rests, free position empty, 1 coin reserved.
+    assert steps[1]["positions"] == []
+    assert steps[1]["open_orders"][0]["reserved_quantity"] == "1"
+    assert steps[1]["open_orders"][0]["side"] == "SELL"
+    # Equity still includes reserved coin at close 140: 9890 + 140 = 10030.
+    assert Decimal(steps[1]["equity"]) == Decimal("10030")
+    assert environment.frozen_quantity("BTC") == Decimal("1")
+    assert environment.positions[0].quantity == Decimal("0")
+
+
+def test_limit_sell_cancel_releases_coins(tmp_path: Path):
+    csv_path = tmp_path / "btc.csv"
+    write_btc_csv(
+        csv_path,
+        [
+            ("2021-01-01", "100", "120", "90", "110"),
+            ("2021-01-02", "110", "150", "100", "140"),
+            ("2021-01-03", "140", "160", "130", "150"),
+        ],
+    )
+    environment = Environment(
+        Experiment(LimitSellThenCancelStrategy()),
+        MockExecutor(),
+        [str(csv_path)],
+        outcomes_dir=tmp_path / "outcomes",
+    )
+    environment.run()
+
+    assert environment.open_orders == []
+    assert environment.frozen_quantity("BTC") == Decimal("0")
+    assert len(environment.positions) == 1
+    assert environment.positions[0].quantity == Decimal("1")
+
+
+def test_limit_sell_rejects_when_insufficient_free_coins(tmp_path: Path):
+    csv_path = tmp_path / "btc.csv"
+    write_btc_csv(
+        csv_path,
+        [
+            ("2021-01-01", "100", "120", "90", "110"),
+            ("2021-01-02", "110", "150", "100", "140"),
+        ],
+    )
+
+    class OversellStrategy(SeedPositionThenLimitSellStrategy):
+        def decide(self, context: Context) -> Decision | None:
+            if not self._bought:
+                return super().decide(context)
+            return Decision(
+                orders=[
+                    Order(
+                        ticker="BTC",
+                        side=OrderSide.SELL,
+                        order_type=OrderType.LIMIT,
+                        quantity=Decimal("2"),
+                        price=Decimal("200"),
+                    )
+                ]
+            )
+
+    environment = Environment(
+        Experiment(OversellStrategy()),
+        MockExecutor(),
+        [str(csv_path)],
+        outcomes_dir=tmp_path / "outcomes",
+    )
+    with pytest.raises(ValueError, match="Not enough free BTC to reserve"):
+        environment.run()
+
+
+def test_limit_sell_fill_uses_reserved_coins(tmp_path: Path):
+    csv_path = tmp_path / "btc.csv"
+    # Day 2 high reaches 200 → limit sell fills.
+    write_btc_csv(
+        csv_path,
+        [
+            ("2021-01-01", "100", "120", "90", "110"),
+            ("2021-01-02", "110", "150", "100", "140"),
+            ("2021-01-03", "140", "210", "130", "200"),
+        ],
+    )
+    environment = Environment(
+        Experiment(SeedPositionThenLimitSellStrategy()),
+        MockExecutor(),
+        [str(csv_path)],
+        outcomes_dir=tmp_path / "outcomes",
+    )
+    environment.run()
+
+    assert environment.open_orders == []
+    assert environment.frozen_quantity("BTC") == Decimal("0")
+    assert environment.positions == []
+    # Bought at 110, sold at 200 → USD 10000 - 110 + 200 = 10090.
+    assert environment.account.balances["USD"] == Decimal("10090")

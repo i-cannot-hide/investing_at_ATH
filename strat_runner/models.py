@@ -42,6 +42,9 @@ class Order:
     total_value: Decimal | None = None
     price: Decimal | None = None
     id: str = field(default_factory=_next_order_id)
+    # Set by Environment when a limit is accepted; not set by strategies.
+    reserved_cash: Decimal | None = None
+    reserved_quantity: Decimal | None = None
 
     def __post_init__(self):
         has_quantity = self.quantity is not None
@@ -54,6 +57,16 @@ class Order:
             raise ValueError("Market orders must not include price")
         elif (self.order_type == OrderType.LIMIT) and (self.price is None):
             raise ValueError("Limit orders must include price")
+
+        if self.reserved_cash is not None:
+            self.reserved_cash = Decimal(str(self.reserved_cash))
+            if self.reserved_cash < 0:
+                raise ValueError("reserved_cash must be non-negative")
+
+        if self.reserved_quantity is not None:
+            self.reserved_quantity = Decimal(str(self.reserved_quantity))
+            if self.reserved_quantity < 0:
+                raise ValueError("reserved_quantity must be non-negative")
 
 
 @dataclass

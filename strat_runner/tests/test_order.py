@@ -104,3 +104,27 @@ def test_order_rejects_neither_quantity_nor_value():
             side=OrderSide.BUY,
             order_type=OrderType.MARKET,
         )
+
+
+def test_order_rejects_negative_reserved_cash():
+    with pytest.raises(ValueError, match="non-negative"):
+        Order(
+            ticker="BTC",
+            side=OrderSide.BUY,
+            order_type=OrderType.LIMIT,
+            quantity=Decimal("1"),
+            price=Decimal("100"),
+            reserved_cash=Decimal("-1"),
+        )
+
+
+def test_order_rejects_negative_reserved_quantity():
+    with pytest.raises(ValueError, match="non-negative"):
+        Order(
+            ticker="BTC",
+            side=OrderSide.SELL,
+            order_type=OrderType.LIMIT,
+            quantity=Decimal("1"),
+            price=Decimal("100"),
+            reserved_quantity=Decimal("-1"),
+        )

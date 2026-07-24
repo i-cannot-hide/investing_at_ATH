@@ -10,6 +10,7 @@ from models import (
     Context,
     Decision,
     Order,
+    OrderSide,
     OrderType,
     Position,
 )
@@ -137,7 +138,7 @@ class Environment:
                     )
                 )
 
-            self.open_orders.extend(limits)
+            self.open_orders.extend(self._accept_limit_orders(limits))
 
             last_prices = {
                 ticker: candle.close for ticker, candle in last_candles.items()
@@ -184,11 +185,97 @@ class Environment:
             },
         )
 
+    @property
+    def frozen_usd(self) -> Decimal:
+        """Total USD locked in resting buy-limit reservations."""
+        total = Decimal("0")
+        for order in self.open_orders:
+            if order.reserved_cash is not None:
+                total += order.reserved_cash
+        return total
+
+    def frozen_quantity(self, ticker: str) -> Decimal:
+        """Total coin quantity locked in resting sell-limit reservations."""
+        total = Decimal("0")
+        for order in self.open_orders:
+            if order.ticker == ticker and order.reserved_quantity is not None:
+                total += order.reserved_quantity
+        return total
+
+    def _find_position(self, ticker: str) -> tuple[int | None, Position | None]:
+        for index, position in enumerate(self.positions):
+            if position.ticker == ticker:
+                return index, position
+        return None, None
+
+    def _limit_buy_reserve_amount(self, order: Order) -> Decimal:
+        if order.total_value is not None:
+            return order.total_value
+        return order.quantity * order.price
+
+    def _limit_sell_reserve_amount(self, order: Order) -> Decimal:
+        if order.quantity is not None:
+            return order.quantity
+        if order.price <= 0:
+            raise ValueError(
+                f"Cannot size sell reservation for {order.ticker}: price is {order.price}"
+            )
+        return order.total_value / order.price
+
+    def _release_reservation(self, order: Order) -> None:
+        if order.reserved_cash is not None:
+            self.account.balances["USD"] += order.reserved_cash
+            order.reserved_cash = None
+
+        if order.reserved_quantity is not None:
+            _, position = self._find_position(order.ticker)
+            if position is None:
+                # Should not happen if we never drop zero-qty positions while reserved.
+                self.positions.append(
+                    Position(
+                        ticker=order.ticker,
+                        quantity=order.reserved_quantity,
+                        average_price=order.price or Decimal("0"),
+                    )
+                )
+            else:
+                position.quantity += order.reserved_quantity
+            order.reserved_quantity = None
+
+    def _accept_limit_orders(self, limits: list[Order]) -> list[Order]:
+        accepted: list[Order] = []
+        for order in limits:
+            if order.side == OrderSide.BUY:
+                need = self._limit_buy_reserve_amount(order)
+                free = self.account.balances.get("USD", Decimal("0"))
+                if free < need:
+                    raise ValueError(
+                        f"Not enough free USD to reserve {need} for limit buy "
+                        f"{order.id} (free={free})"
+                    )
+                self.account.balances["USD"] -= need
+                order.reserved_cash = need
+            elif order.side == OrderSide.SELL:
+                need = self._limit_sell_reserve_amount(order)
+                _, position = self._find_position(order.ticker)
+                free_qty = position.quantity if position is not None else Decimal("0")
+                if position is None or free_qty < need:
+                    raise ValueError(
+                        f"Not enough free {order.ticker} to reserve {need} for limit sell "
+                        f"{order.id} (free={free_qty})"
+                    )
+                position.quantity -= need
+                order.reserved_quantity = need
+            accepted.append(order)
+        return accepted
+
     def _cancel_open_orders(self, cancel_ids: list[str]) -> list[Order]:
         if not cancel_ids:
             return []
         cancel_set = set(cancel_ids)
         cancelled = [order for order in self.open_orders if order.id in cancel_set]
+        for order in cancelled:
+            self._release_reservation(order)
         self.open_orders = [
             order for order in self.open_orders if order.id not in cancel_set
         ]
@@ -212,6 +299,8 @@ class Environment:
                 raise ValueError(f"Unsupported order type: {order.order_type}")
 
             if should_fill:
+                # Unlock reservations; executor then applies the fill against free balances.
+                self._release_reservation(order)
                 fills.extend(
                     self.mock_executor.execute(
                         [order],
@@ -225,6 +314,19 @@ class Environment:
 
         self.open_orders = still_open
         return fills
+
+    def _copy_order(self, order: Order) -> Order:
+        return Order(
+            ticker=order.ticker,
+            side=order.side,
+            order_type=order.order_type,
+            quantity=order.quantity,
+            total_value=order.total_value,
+            price=order.price,
+            id=order.id,
+            reserved_cash=order.reserved_cash,
+            reserved_quantity=order.reserved_quantity,
+        )
 
     def _build_context(
         self,
@@ -247,15 +349,20 @@ class Environment:
                     average_price=position.average_price,
                 )
                 for position in self.positions
+                if position.quantity > 0
             ],
-            open_orders=list(self.open_orders),
+            open_orders=[self._copy_order(order) for order in self.open_orders],
         )
 
     def _mark_to_market(self, prices: dict[str, Decimal]) -> Decimal:
-        equity = self.account.balances["USD"]
+        equity = self.account.balances["USD"] + self.frozen_usd
 
         for position in self.positions:
             equity += position.quantity * prices[position.ticker]
+
+        for order in self.open_orders:
+            if order.reserved_quantity is not None:
+                equity += order.reserved_quantity * prices[order.ticker]
 
         return equity
 
@@ -301,6 +408,16 @@ class Environment:
                         str(order.total_value) if order.total_value is not None else None
                     ),
                     "price": str(order.price) if order.price is not None else None,
+                    "reserved_cash": (
+                        str(order.reserved_cash)
+                        if order.reserved_cash is not None
+                        else None
+                    ),
+                    "reserved_quantity": (
+                        str(order.reserved_quantity)
+                        if order.reserved_quantity is not None
+                        else None
+                    ),
                 }
                 for order in self.open_orders
             ],
@@ -308,6 +425,7 @@ class Environment:
                 currency: str(amount)
                 for currency, amount in self.account.balances.items()
             },
+            "frozen_usd": str(self.frozen_usd),
             "positions": [
                 {
                     "ticker": position.ticker,
@@ -315,6 +433,7 @@ class Environment:
                     "average_price": str(position.average_price),
                 }
                 for position in self.positions
+                if position.quantity > 0
             ],
             "equity": str(equity),
         }

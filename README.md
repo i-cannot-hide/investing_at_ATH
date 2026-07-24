@@ -27,7 +27,24 @@ So: decide at the open, market fills at the same bar’s close, freshly placed l
 
 ## Cash and resting orders
 
-Resting limit buys **do not reserve** cash. Available USD stays spendable until a fill actually deducts it. If a limit would cost more than the cash left at fill time, the executor raises. Design strategies accordingly (or cancel/replace when balances change).
+Resting limits lock funds on the order when accepted:
+
+**Buy limits** (`reserved_cash`):
+- Free USD (`account.balances["USD"]`) is reduced by the lock
+- `Environment.frozen_usd` sums all cash locks
+- Cancel unlocks back to free USD
+- Fill unlocks, then debits the actual fill cost (cheaper gap fills return leftover to free)
+- Lock size: `quantity * limit_price`, or `total_value` when value-sized
+
+**Sell limits** (`reserved_quantity`):
+- Free position quantity is reduced by the lock (coins stay in equity via the reservation)
+- `Environment.frozen_quantity(ticker)` sums coin locks for that asset
+- Context / step `positions` show only free (unreserved) quantity
+- Cancel unlocks coins back to the position
+- Fill unlocks, then the executor sells the fill size
+- Lock size: `quantity`, or `total_value / limit_price` when value-sized
+
+Equity = free USD + frozen USD + free position value + reserved coin value.
 
 ## Setup
 
