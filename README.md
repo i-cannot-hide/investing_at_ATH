@@ -161,3 +161,4 @@ Research(
 - Journal markers on charts (fills, deposits, …) — partially done
 - Implement leverage
 - Implement fees
+- implement futures so you can short
