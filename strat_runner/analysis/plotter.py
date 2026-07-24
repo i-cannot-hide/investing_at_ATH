@@ -1,12 +1,18 @@
 import pandas as pd
 import plotly.graph_objects as go
 from plotly.colors import qualitative
+from enum import Enum
 
 from engine.journal import EntryType
 
 # Plotly only accepts legend / legend2 / … as legend ids.
 SERIES_LEGEND = "legend"
 ENTRIES_LEGEND = "legend2"
+
+
+class Scale(Enum):
+    LOG = "log"
+    LINEAR = "linear"
 
 _MARKER_STYLE = {
     EntryType.ORDER_FILLED.value: {
@@ -184,7 +190,7 @@ def plot_series(
     column,
     *,
     journal: list[EntryType] | None = None,
-    logy=True,
+    scale: Scale = Scale.LOG,
     figsize=(10, 5),
 ):
     """Plot `column` over time with an interactive Plotly chart.
@@ -194,7 +200,12 @@ def plot_series(
 
     Pass `journal` as a list of `EntryType` values to overlay matching
     journal entries as markers on each series.
+
+    `scale` is ``Scale.LOG`` (default) or ``Scale.LINEAR``.
     """
+    if not isinstance(scale, Scale):
+        raise TypeError(f"scale must be Scale, got {type(scale)!r}")
+
     series = {"_": data} if isinstance(data, pd.DataFrame) else data
     width = int(figsize[0] * 80)
     height = int(figsize[1] * 80)
@@ -240,7 +251,7 @@ def plot_series(
         "hovermode": "x unified",
         "margin": {"l": 60, "r": 20, "t": 30, "b": 100},
         SERIES_LEGEND: series_legend,
-        "yaxis_title": f"{column} (log)" if logy else column,
+        "yaxis_title": f"{column} (log)" if scale is Scale.LOG else column,
         "xaxis_title": None,
         "plot_bgcolor": "#fafafa",
         "paper_bgcolor": "#ffffff",
@@ -255,6 +266,6 @@ def plot_series(
         layout["margin"] = {"l": 60, "r": 20, "t": 30, "b": 140}
         layout[ENTRIES_LEGEND] = entries_legend
     fig.update_layout(**layout)
-    fig.update_yaxes(type="log" if logy else "linear", tickformat=",.0f")
+    fig.update_yaxes(type=scale.value, tickformat=",.0f")
     fig.update_xaxes(tickformat="%Y-%m-%d", tickangle=-45)
     fig.show()
