@@ -62,27 +62,27 @@ sequenceDiagram
   participant Env as Environment
   participant Ex as MockExecutor
 
-  Note over Env: Bar opens (open prices known)
-  Env->>Mod: on_bar_start(ctx)
-  Mod-->>Env: journal entries (deposit / interest…)
+  Note over Env: Bar opens - open prices known
+  Env->>Mod: on_bar_start
+  Mod-->>Env: journal entries
 
-  Env->>Strat: decide(Context)
+  Env->>Strat: decide
   Note over Strat: Sees opens + past bars only<br/>Not current high/low/close
-  Strat-->>Env: Decision(orders, cancels)
+  Strat-->>Env: Decision
 
   Env->>Env: apply cancels
   Env->>Env: accept market orders into open_orders
   Env->>Env: append bar to history
   Env->>Ex: fill open orders vs this bar OHLC
-  Note over Ex: Market @ close<br/>Limit if touched / gap @ open
-  Ex-->>Env: Fills → journal
-  Env->>Env: accept new limit orders (rest; no fill today)
+  Note over Ex: Market at close<br/>Limit if touched or gap at open
+  Ex-->>Env: Fills to journal
+  Env->>Env: accept new limit orders - rest, no fill today
 
-  Env->>Mod: on_bar_end(ctx)
-  Mod-->>Env: journal (e.g. Staker observe / final interest)
+  Env->>Mod: on_bar_end
+  Mod-->>Env: journal from end hooks
 
-  Env->>Env: mark equity @ close
-  Env->>Env: record step (candles, balances, journal, …)
+  Env->>Env: mark equity at close
+  Env->>Env: record step
 ```
 
 Step by step:
