@@ -39,12 +39,12 @@ _MARKER_STYLE = {
     EntryType.DEPOSIT.value: {
         "name": "deposit",
         "symbol": "line-nw",
-            "color": "#1b5e20",
-            "size": 10,
-            "line_color": "#1b5e20",
-            "line_width": 2,
-            "hover": "DEPOSIT",
-        },
+        "color": "#1b5e20",
+        "size": 10,
+        "line_color": "#1b5e20",
+        "line_width": 2,
+        "hover": "DEPOSIT",
+    },
     EntryType.WITHDRAWAL.value: {
         "name": "withdrawal",
         "symbol": "line-ne",
@@ -73,7 +73,9 @@ def flatten_journal(steps: pd.DataFrame) -> pd.DataFrame:
 def _entry_type_values(journal: list[EntryType] | None) -> list[str]:
     if not journal:
         return []
-    return [entry.value if isinstance(entry, EntryType) else str(entry) for entry in journal]
+    return [
+        entry.value if isinstance(entry, EntryType) else str(entry) for entry in journal
+    ]
 
 
 def _marker_y(entry: pd.Series, frame: pd.DataFrame, column: str) -> float | None:
@@ -217,9 +219,7 @@ def plot_series(
                 legend=SERIES_LEGEND,
                 line={"color": color},
                 hovertemplate=(
-                    f"<b>{name}</b><br>"
-                    f"{column}: %{{y:,.2f}}"
-                    "<extra></extra>"
+                    f"<b>{name}</b><br>{column}: %{{y:,.2f}}<extra></extra>"
                 ),
             )
         )
@@ -233,7 +233,7 @@ def plot_series(
                 shown_legend=shown_legend,
             )
 
-    series_legend = {"orientation": "h", "yanchor": "top", "y": -0.28, "x": 0}
+    series_legend = {"orientation": "h", "yanchor": "top", "y": -0.38, "x": 0}
     layout = {
         "width": width,
         "height": height,
@@ -249,7 +249,7 @@ def plot_series(
         entries_legend = {
             "orientation": "h",
             "yanchor": "top",
-            "y": -0.52,
+            "y": -0.8,
             "x": 0,
         }
         layout["margin"] = {"l": 60, "r": 20, "t": 30, "b": 140}

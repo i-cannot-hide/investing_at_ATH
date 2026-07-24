@@ -399,3 +399,31 @@ def test_money_spawner_credits_before_decide(tmp_path: Path):
     assert steps[2]["journal"] == [
         {"type": "deposit", "currency": "USD", "amount": "1000"}
     ]
+
+
+class MutatingStrategy:
+    """Tries to corrupt engine state through the Context handed to decide()."""
+
+    def decide(self, context: Context) -> None:
+        context.account.balances["USD"] = Decimal("0")
+        context.positions.clear()
+        context.history.setdefault("BTC", []).clear()
+        context.current_open_prices.clear()
+        context.open_orders.clear()
+        return None
+
+
+def test_context_mutations_do_not_affect_environment(tmp_path: Path, btc_csv: Path):
+    environment = Environment(
+        Experiment(MutatingStrategy()),
+        MockExecutor(),
+        [str(btc_csv)],
+        outcomes_dir=tmp_path / "outcomes",
+    )
+    environment.run()
+
+    assert environment.account.balances["USD"] == Decimal("10000")
+    assert environment.positions == []
+    assert environment.open_orders == []
+    # History still advanced for every bar despite strategy clearing its copy.
+    assert len(environment.recorder.folder.joinpath("steps.jsonl").read_text().splitlines()) == 3

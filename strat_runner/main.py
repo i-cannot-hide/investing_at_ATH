@@ -34,7 +34,7 @@ research = Research(
 
         Experiment(
             strategy=InvestEverythingStrategy(ticker="BTC"),
-            name="invest_everything",
+            name="invest_everything+spawn",
             money_spawner=MoneySpawner(
                 currency="USD",
                 amount=1000,

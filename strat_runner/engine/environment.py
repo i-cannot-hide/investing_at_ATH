@@ -11,6 +11,7 @@ from models import (
     Decision,
     Order,
     OrderType,
+    Position,
 )
 from engine.experiment import Experiment
 from engine.journal import (
@@ -231,12 +232,22 @@ class Environment:
         history: dict[str, list[Candle]],
         current_open_prices: dict[str, Decimal],
     ) -> Context:
+        """Snapshot for `decide` — copies mutable state so strategies cannot corrupt the sim."""
         return Context(
             time=time,
-            history=history,
-            current_open_prices=current_open_prices,
-            account=self.account,
-            positions=self.positions,
+            history={
+                ticker: list(candles) for ticker, candles in history.items()
+            },
+            current_open_prices=dict(current_open_prices),
+            account=Account(balances=dict(self.account.balances)),
+            positions=[
+                Position(
+                    ticker=position.ticker,
+                    quantity=position.quantity,
+                    average_price=position.average_price,
+                )
+                for position in self.positions
+            ],
             open_orders=list(self.open_orders),
         )
 

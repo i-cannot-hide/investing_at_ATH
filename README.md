@@ -11,6 +11,24 @@ A Python lab for simulating investment strategies on historical market data, ins
 - Save each outcome under `strat_runner/outcomes/` with a searchable registry
 - Explore equity and prices in an interactive Plotly notebook
 
+## Bar timing
+
+Each bar is processed in this order:
+
+1. Optional cash deposit (`MoneySpawner`)
+2. Strategy `decide` — sees **current open** prices and **past bars only** (no current OHLC in history)
+3. Cancels apply; new **market** orders are accepted
+4. Current bar is appended to history
+5. Open orders fill against the current bar (markets at **close**; limits when touched, at limit or gap-through **open**)
+6. New **limit** orders rest — they are **not** eligible to fill until a later bar
+7. Equity is marked to market at close
+
+So: decide at the open, market fills at the same bar’s close, freshly placed limits wait until the next bar.
+
+## Cash and resting orders
+
+Resting limit buys **do not reserve** cash. Available USD stays spendable until a fill actually deducts it. If a limit would cost more than the cash left at fill time, the executor raises. Design strategies accordingly (or cancel/replace when balances change).
+
 ## Setup
 
 Requires **Python 3.14+**.
@@ -39,7 +57,7 @@ cd strat_runner/analysis
 jupyter lab explore.ipynb
 ```
 
-The notebook loads the latest research batch (`load_research("hold-vs-buybelow")`) and plots every experiment side by side. You can still use `load_outcome(...)` filters (`strategy`, `assets`, `params`, `start_date`, `end_date`, `id`, `folder`, `research`, `name`) for a single outcome.
+The notebook loads the latest research batch (`load_research("hold-vs-buybelow")`) and plots every experiment side by side. Filter registry entries with `latest_entry(...)` / `find_entries(...)` (`strategy`, `assets`, `params`, `start_date`, `end_date`, `id`, `folder`, `research`, `name`) for a single outcome.
 
 ## Tests
 
@@ -73,7 +91,7 @@ Strategies implement `decide(context) -> Decision | None`:
 - **`InvestEverythingStrategy`** — market-buy all available USD whenever funds appear
 - **`BuyBelowStrategy`** — rest a limit buy at a target price
 
-`Context` exposes history (past bars only), current open prices, account, positions, and open orders. Return `Decision(orders=..., cancel_order_ids=...)` or `None` for a no-op.
+`Context` exposes a **copy** of history (past bars only), current open prices, account, positions, and open orders — mutating it does not change the environment. Return `Decision(orders=..., cancel_order_ids=...)` or `None` for a no-op.
 
 ## Experiments
 
