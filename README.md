@@ -171,7 +171,6 @@ Research(
 
 - Money Burner
 - Show more charts
-- Show USD and positions separately
 - Journal markers on charts (fills, deposits, …) — partially done
 - Implement leverage
 - Implement fees

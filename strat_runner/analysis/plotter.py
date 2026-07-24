@@ -1,3 +1,4 @@
+from decimal import Decimal, ROUND_HALF_UP
 import pandas as pd
 import plotly.graph_objects as go
 from plotly.colors import qualitative
@@ -8,6 +9,13 @@ from engine.journal import EntryType
 # Plotly only accepts legend / legend2 / … as legend ids.
 SERIES_LEGEND = "legend"
 ENTRIES_LEGEND = "legend2"
+
+_USD_SERIES_COLUMNS = {
+    "equity",
+    "available_usd",
+    "frozen_usd",
+    "total_usd",
+}
 
 
 class Scale(Enum):
@@ -71,6 +79,17 @@ _MARKER_STYLE = {
     },
 }
 
+_AGGREGATE_STYLE = {
+    "name": "events",
+    "symbol": "circle",
+    "color": "#455a64",
+    "size": 12,
+    "line_color": "#000000",
+    "line_width": 1,
+    "hover": "EVENTS",
+    "text_only": True,
+}
+
 
 def flatten_journal(steps: pd.DataFrame) -> pd.DataFrame:
     """Explode step `journal` lists into one row per entry."""
@@ -109,96 +128,213 @@ def _marker_y(entry: pd.Series, frame: pd.DataFrame, column: str) -> float | Non
     return float(match.iloc[0])
 
 
-def _add_journal_traces(
-    fig: go.Figure,
+def _style_for_entry(entry: pd.Series) -> dict:
+    entry_type = entry.get("type")
+    style = _MARKER_STYLE.get(entry_type)
+    if style is None:
+        return _AGGREGATE_STYLE
+    if entry_type == EntryType.ORDER_FILLED.value:
+        return style.get(entry.get("side"), _AGGREGATE_STYLE)
+    return style
+
+
+def _format_number(value, *, max_decimals: int) -> str:
+    """Format a number with at most ``max_decimals`` places (trim trailing zeros)."""
+    if value is None or (isinstance(value, float) and pd.isna(value)):
+        return ""
+    quantized = Decimal(str(value)).quantize(
+        Decimal("1").scaleb(-max_decimals),
+        rounding=ROUND_HALF_UP,
+    )
+    text = f"{quantized:f}"
+    if "." in text:
+        text = text.rstrip("0").rstrip(".")
+    return text
+
+
+def _format_asset_amount(value, *, asset: str | None) -> str:
+    """USD → 2 dp max; everything else (coins, prices) → 4 dp max."""
+    max_decimals = 2 if (asset or "").upper() == "USD" else 4
+    return _format_number(value, max_decimals=max_decimals)
+
+
+def _series_y_hover_format(column: str) -> str:
+    if column in _USD_SERIES_COLUMNS or column.endswith("_usd"):
+        return ",.2f"
+    return ",.4f"
+
+
+def _hover_line(entry: pd.Series) -> str:
+    entry_type = entry.get("type")
+    if entry_type == EntryType.ORDER_FILLED.value:
+        side = entry.get("side") or "?"
+        qty = entry.get("quantity")
+        price = entry.get("price")
+        ticker = entry.get("ticker") or ""
+        parts = [str(side)]
+        if ticker:
+            parts.append(str(ticker))
+        if qty is not None and pd.notna(qty):
+            parts.append(_format_asset_amount(qty, asset=ticker))
+        if price is not None and pd.notna(price):
+            # Fill prices are quote currency levels; keep 4 dp like other non-USD.
+            parts.append(f"@ {_format_number(price, max_decimals=4)}")
+        return " ".join(parts)
+    if entry_type == EntryType.ORDER_CANCELLED.value:
+        return f"CANCEL {entry.get('order_id') or ''}".strip()
+    if entry_type == EntryType.DEPOSIT.value:
+        currency = entry.get("currency") or ""
+        amount = _format_asset_amount(entry.get("amount"), asset=currency)
+        return f"DEPOSIT {amount} {currency}".strip()
+    if entry_type == EntryType.INTEREST.value:
+        ticker = entry.get("ticker") or ""
+        amount = _format_asset_amount(entry.get("amount"), asset=ticker)
+        return f"INTEREST {amount} {ticker}".strip()
+    if entry_type == EntryType.WITHDRAWAL.value:
+        currency = entry.get("currency") or ""
+        amount = _format_asset_amount(entry.get("amount"), asset=currency)
+        return f"WITHDRAWAL {amount} {currency}".strip()
+    return str(entry_type or "event")
+
+
+def _series_y_at(frame: pd.DataFrame, time, column: str) -> float | None:
+    match = frame.loc[frame["time"] == time, column]
+    if match.empty or pd.isna(match.iloc[0]):
+        return None
+    return float(match.iloc[0])
+
+
+def aggregate_journal_markers(
+    journal: pd.DataFrame,
     frame: pd.DataFrame,
     column: str,
-    entry_types: list[str],
+) -> list[dict]:
+    """Collapse same-day journal entries into one marker each.
+
+    Single-entry days keep that entry's style and y. Multi-entry days use the
+    aggregate style, series y, a count label, and a combined hover list.
+    """
+    if journal.empty:
+        return []
+
+    markers: list[dict] = []
+    ordered = journal.sort_values("time", kind="mergesort")
+    for time, group in ordered.groupby("time", sort=True):
+        rows = [row for _, row in group.iterrows()]
+        if len(rows) == 1:
+            entry = rows[0]
+            y = _marker_y(entry, frame, column)
+            if y is None:
+                continue
+            style = _style_for_entry(entry)
+            markers.append(
+                {
+                    "time": time,
+                    "y": y,
+                    "style": style,
+                    "text": "",
+                    "hover": _hover_line(entry),
+                    "count": 1,
+                }
+            )
+            continue
+
+        y = _series_y_at(frame, time, column)
+        if y is None:
+            # Fall back to first entry that has a y.
+            for entry in rows:
+                y = _marker_y(entry, frame, column)
+                if y is not None:
+                    break
+        if y is None:
+            continue
+
+        count = len(rows)
+        lines = [f"{count} entries", *(_hover_line(entry) for entry in rows)]
+        markers.append(
+            {
+                "time": time,
+                "y": y,
+                "style": _AGGREGATE_STYLE,
+                "text": str(count),
+                "hover": "<br>".join(lines),
+                "count": count,
+            }
+        )
+    return markers
+
+
+def series_journal_customdata(
+    times,
+    markers: list[dict],
+) -> list[str]:
+    """Per-timestamp hover suffix for the series line (empty if no entries)."""
+    by_time = {pd.Timestamp(marker["time"]): marker["hover"] for marker in markers}
+    customdata: list[str] = []
+    for time in times:
+        hover = by_time.get(pd.Timestamp(time))
+        customdata.append(f"<br>{hover}" if hover else "")
+    return customdata
+
+
+def _add_journal_traces(
+    fig: go.Figure,
+    markers: list[dict],
     *,
     shown_legend: set[str],
 ):
-    journal = flatten_journal(frame)
-    if journal.empty:
+    """Draw journal markers only — hover details live on the series line."""
+    if not markers:
         return
 
-    journal = journal[journal["type"].isin(entry_types)].copy()
-    if journal.empty:
-        return
+    by_name: dict[str, list[dict]] = {}
+    for marker in markers:
+        by_name.setdefault(marker["style"]["name"], []).append(marker)
 
-    def add_markers(rows: pd.DataFrame, style: dict, extra_hover: str | None = None):
-        if rows.empty:
-            return
-        ys = [_marker_y(row, frame, column) for _, row in rows.iterrows()]
-        name = style["name"]
+    for name, group in by_name.items():
+        style = group[0]["style"]
         show_legend = name not in shown_legend
         if show_legend:
             shown_legend.add(name)
-        hover = style["hover"]
-        if extra_hover:
-            hover_template = f"{hover} %{{customdata}}<extra></extra>"
-            customdata = rows[extra_hover]
+        texts = [marker["text"] for marker in group]
+        text_only = style.get("text_only", False)
+        if text_only:
+            mode = "text"
+            textposition = "middle center"
+        elif any(texts):
+            mode = "markers+text"
+            textposition = "top center"
         else:
-            hover_template = f"{hover}<extra></extra>"
-            customdata = None
+            mode = "markers"
+            textposition = "top center"
         fig.add_trace(
             go.Scatter(
-                x=rows["time"],
-                y=ys,
-                mode="markers",
+                x=[marker["time"] for marker in group],
+                y=[marker["y"] for marker in group],
+                mode=mode,
                 name=name,
                 legend=ENTRIES_LEGEND,
                 legendgroup=name,
                 showlegend=show_legend,
+                text=texts if text_only or any(texts) else None,
+                textposition=textposition,
+                textfont={"size": 12, "color": style["color"]},
                 marker={
                     "symbol": style["symbol"],
-                    "size": style["size"],
+                    "size": [
+                        min(style["size"] + 2 * (marker["count"] - 1), 18)
+                        for marker in group
+                    ],
                     "color": style["color"],
                     "line": {
                         "width": style.get("line_width", 1),
                         "color": style.get("line_color", style["color"]),
                     },
                 },
-                hovertemplate=hover_template,
-                customdata=customdata,
+                # Keep markers out of x-unified hover (it otherwise sticks to
+                # the nearest event day). Details are on the series hover.
+                hoverinfo="skip",
             )
-        )
-
-    if EntryType.ORDER_FILLED.value in entry_types:
-        fills = journal[journal["type"] == EntryType.ORDER_FILLED.value]
-        for side, style in _MARKER_STYLE[EntryType.ORDER_FILLED.value].items():
-            side_rows = fills[fills["side"] == side] if not fills.empty else fills
-            add_markers(
-                side_rows,
-                style,
-                extra_hover="quantity" if "quantity" in side_rows.columns else None,
-            )
-
-    if EntryType.ORDER_CANCELLED.value in entry_types:
-        cancels = journal[journal["type"] == EntryType.ORDER_CANCELLED.value]
-        add_markers(cancels, _MARKER_STYLE[EntryType.ORDER_CANCELLED.value])
-
-    if EntryType.DEPOSIT.value in entry_types:
-        deposits = journal[journal["type"] == EntryType.DEPOSIT.value]
-        add_markers(
-            deposits,
-            _MARKER_STYLE[EntryType.DEPOSIT.value],
-            extra_hover="amount" if "amount" in deposits.columns else None,
-        )
-
-    if EntryType.INTEREST.value in entry_types:
-        interest = journal[journal["type"] == EntryType.INTEREST.value]
-        add_markers(
-            interest,
-            _MARKER_STYLE[EntryType.INTEREST.value],
-            extra_hover="amount" if "amount" in interest.columns else None,
-        )
-
-    if EntryType.WITHDRAWAL.value in entry_types:
-        withdrawals = journal[journal["type"] == EntryType.WITHDRAWAL.value]
-        add_markers(
-            withdrawals,
-            _MARKER_STYLE[EntryType.WITHDRAWAL.value],
-            extra_hover="amount" if "amount" in withdrawals.columns else None,
         )
 
 
@@ -216,7 +352,8 @@ def plot_series(
     to overlay multiple series. Hover a point to see its date and value.
 
     Pass `journal` as a list of `EntryType` values to overlay matching
-    journal entries as markers on each series.
+    journal entries as markers on each series. Same-day entries are
+    collapsed into one marker; hover on that date lists every entry.
 
     `scale` is ``Scale.LOG`` (default) or ``Scale.LINEAR``.
     """
@@ -238,6 +375,14 @@ def plot_series(
         name = column if label == "_" else label
         color = colors[index % len(colors)]
 
+        markers: list[dict] = []
+        if entry_types:
+            entries = flatten_journal(frame)
+            if not entries.empty:
+                entries = entries[entries["type"].isin(entry_types)]
+                if not entries.empty:
+                    markers = aggregate_journal_markers(entries, frame, column)
+
         fig.add_trace(
             go.Scatter(
                 x=frame["time"],
@@ -246,20 +391,17 @@ def plot_series(
                 name=name,
                 legend=SERIES_LEGEND,
                 line={"color": color},
+                customdata=series_journal_customdata(frame["time"], markers),
                 hovertemplate=(
-                    f"<b>{name}</b><br>{column}: %{{y:,.2f}}<extra></extra>"
+                    f"<b>{name}</b><br>{column}: "
+                    f"%{{y:{_series_y_hover_format(column)}}}%{{customdata}}"
+                    f"<extra></extra>"
                 ),
             )
         )
 
-        if entry_types:
-            _add_journal_traces(
-                fig,
-                frame,
-                column,
-                entry_types,
-                shown_legend=shown_legend,
-            )
+        if markers:
+            _add_journal_traces(fig, markers, shown_legend=shown_legend)
 
     series_legend = {"orientation": "h", "yanchor": "top", "y": -0.38, "x": 0}
     layout = {
