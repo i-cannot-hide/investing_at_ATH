@@ -11,20 +11,149 @@ A Python lab for simulating investment strategies on historical market data, ins
 - Save each outcome under `strat_runner/outcomes/` with a searchable registry
 - Explore equity and OHLC (high/low) in an interactive Plotly notebook
 
-## Bar timing
+## How it works
 
-Each bar is processed in this order:
+For each day: modifiers may move cash → strategy decides from the **open** → orders fill against that day’s candle → modifiers observe again → equity and a journal line are saved for the explore notebook.
 
-1. Experiment modifiers `on_bar_start` (e.g. `MoneySpawner`, period-roll `Staker` interest)
-2. Strategy `decide` — sees **current open** prices and **past bars only** (no current OHLC in history)
+### Big picture
+
+```mermaid
+flowchart LR
+  CSV[Preprocessed CSVs] --> Research
+  Research --> Env[Environment per Experiment]
+  Env --> Outcomes[outcomes/ + registry]
+  Outcomes --> Explore[explore.ipynb + plotter]
+```
+
+`Research` runs many `Experiment`s on the same data window under one `research_id`. Each experiment is a strategy plus optional modifiers.
+
+### Main pieces
+
+```mermaid
+flowchart TB
+  subgraph Experiment
+    S[Strategy]
+    M[Modifiers<br/>MoneySpawner / Staker / …]
+  end
+
+  subgraph Environment
+    Acc[Account USD]
+    Pos[Positions]
+    OO[Open orders]
+    Hist[History of past bars]
+    Rec[Recorder]
+  end
+
+  Exec[MockExecutor]
+
+  Experiment --> Environment
+  Environment --> Exec
+  Rec --> Steps[steps.jsonl]
+  Rec --> Snap[snapshots/ if full debug]
+  Environment --> Reg[registry.jsonl]
+```
+
+### One bar
+
+```mermaid
+sequenceDiagram
+  participant Mod as Modifiers
+  participant Strat as Strategy
+  participant Env as Environment
+  participant Ex as MockExecutor
+
+  Note over Env: Bar opens (open prices known)
+  Env->>Mod: on_bar_start(ctx)
+  Mod-->>Env: journal entries (deposit / interest…)
+
+  Env->>Strat: decide(Context)
+  Note over Strat: Sees opens + past bars only<br/>Not current high/low/close
+  Strat-->>Env: Decision(orders, cancels)
+
+  Env->>Env: apply cancels
+  Env->>Env: accept market orders into open_orders
+  Env->>Env: append bar to history
+  Env->>Ex: fill open orders vs this bar OHLC
+  Note over Ex: Market @ close<br/>Limit if touched / gap @ open
+  Ex-->>Env: Fills → journal
+  Env->>Env: accept new limit orders (rest; no fill today)
+
+  Env->>Mod: on_bar_end(ctx)
+  Mod-->>Env: journal (e.g. Staker observe / final interest)
+
+  Env->>Env: mark equity @ close
+  Env->>Env: record step (candles, balances, journal, …)
+```
+
+Step by step:
+
+1. Modifiers `on_bar_start` (e.g. `MoneySpawner`, period-roll `Staker` interest)
+2. Strategy `decide` — **current open** prices and **past bars only** (no current OHLC in history)
 3. Cancels apply; new **market** orders are accepted
 4. Current bar is appended to history
 5. Open orders fill against the current bar (markets at **close**; limits when touched, at limit or gap-through **open**)
-6. New **limit** orders rest — they are **not** eligible to fill until a later bar
-7. Experiment modifiers `on_bar_end` (e.g. `Staker` observes min; final interest on last bar)
+6. New **limit** orders rest — not eligible to fill until a later bar
+7. Modifiers `on_bar_end` (e.g. `Staker` observes min; final interest on last bar)
 8. Equity is marked to market at close
 
-So: decide at the open, market fills at the same bar’s close, freshly placed limits wait until the next bar.
+Rule of thumb: **decide at the open, market fills at the close, new limits wait for a later bar.**
+
+### What the strategy sees
+
+```mermaid
+flowchart LR
+  subgraph Visible to strategy
+    O[current open prices]
+    H[history = prior bars only]
+    A[copied account / positions / orders]
+  end
+
+  subgraph Hidden until after decide
+    Hi[high]
+    Lo[low]
+    Cl[close]
+  end
+```
+
+### Cash locks on resting limits
+
+```mermaid
+flowchart TB
+  BuyLimit[Buy limit accepted] --> RC[reserved_cash from free USD]
+  SellLimit[Sell limit accepted] --> RQ[reserved_quantity from free coins]
+  RC --> Frozen[frozen_usd]
+  Cancel[Cancel / fill] --> Unlock[Release reservation]
+  Unlock --> Free[Back to free balances]
+  Fill[Fill] --> Settle[Executor debits/credits actual fill]
+```
+
+### Modifiers
+
+```mermaid
+flowchart LR
+  subgraph on_bar_start
+    MS[MoneySpawner<br/>deposit each period]
+    ST1[Staker<br/>pay if period rolled]
+  end
+
+  subgraph on_bar_end
+    ST2[Staker<br/>track period min]
+    ST3[Staker<br/>settle open period on last bar]
+  end
+```
+
+Same `Experiment.modifiers` list; unused hooks return nothing.
+
+### Outputs → analysis
+
+```mermaid
+flowchart TB
+  Run[Environment.run] --> Folder[outcomes/…/]
+  Folder --> Steps[steps.jsonl<br/>equity, candles OHLC, journal, …]
+  Run --> Registry[registry.jsonl<br/>research, name, modifiers, dates]
+  Registry --> Load[latest_research_entries]
+  Steps --> Plot[plot_series<br/>equity / high-low + journal markers]
+```
 
 ## Cash and resting orders
 
