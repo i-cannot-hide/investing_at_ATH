@@ -117,7 +117,7 @@ Research(
 
 `initial_usd` is shared across the batch (same idea as the date window). `latest_research_entries(outcomes_dir, "hold-vs-buybelow")` returns every outcome from the most recent run of that research.
 
-## Roadmap
+## Backlog
 
 - Money Burner
 - Show more charts
